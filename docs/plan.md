@@ -77,7 +77,7 @@
 
 ### 4.3 リージョン
 
-`us-east-1`（バージニア北部）を採用。Bedrock 等の先行リリース実績、Anthropic API のレイテンシともにバランスが良い。
+`ap-northeast-1`（東京）を採用。既存の他プロジェクトと統一して運用負荷を下げる。Anthropic API と Slack Webhook はAWS外部サービスのためリージョン依存はない。
 
 ## 5. フェーズ計画
 

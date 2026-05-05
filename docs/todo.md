@@ -60,7 +60,7 @@
 
 - 配信先: Slack のみ（蓄積は DynamoDB が担う）
 - インフラ: AWS CDK Python + Lambda 1関数 + DynamoDB + EventBridge
-- リージョン: us-east-1
+- リージョン: ap-northeast-1
 - 予算上限: $10/月（試算では $2-4/月）
 - 言語: Python 3.12
 - Papers with Code は実質終了 → HF Trending に置換

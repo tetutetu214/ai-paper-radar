@@ -12,7 +12,7 @@
 
 - **言語**: Python 3.12
 - **IaC**: AWS CDK (Python)
-- **クラウド**: AWS（リージョン: us-east-1）
+- **クラウド**: AWS（リージョン: ap-northeast-1）
 - **主要サービス**:
   - AWS Lambda（Python 3.12ランタイム）
   - Amazon DynamoDB（オンデマンドモード）
