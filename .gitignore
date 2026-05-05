@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+build/
+dist/
+
+# CDK
+cdk.out/
+cdk.context.json
+
+# Node.js
+node_modules/
+
+# シークレット（実体は ~/.secrets/ai-paper-radar.env に置く）
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets.json
+secrets.local.json
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

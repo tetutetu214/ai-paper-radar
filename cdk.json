@@ -1,0 +1,27 @@
+{
+  "app": "uv run python3 app.py",
+  "watch": {
+    "include": ["**"],
+    "exclude": [
+      "README.md",
+      "cdk*.json",
+      "node_modules",
+      ".venv",
+      "tests",
+      "docs",
+      "**/__pycache__",
+      "**/.pytest_cache",
+      "**/.mypy_cache",
+      "**/.ruff_cache"
+    ]
+  },
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/core:target-partitions": ["aws", "aws-cn"],
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/core:validateSnapshotRemovalPolicy": true,
+    "@aws-cdk/aws-iam:standardizedServicePrincipals": true,
+    "@aws-cdk/core:enablePartitionLiterals": true
+  }
+}
