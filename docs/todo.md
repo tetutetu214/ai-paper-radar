@@ -26,13 +26,14 @@
 
 ## Phase 2: 実装（MVP）
 
-- [ ] CDK スタック実装（DynamoDB, Secrets Manager, Lambda, EventBridge, IAM）
-- [ ] Lambda 関数 `pipeline` 実装
+- [x] CDK スタック実装（DynamoDB, Lambda, EventBridge, IAM、SSM 権限付与）
+- [x] AWS Budgets $10/月（Context `notification_email` 指定時のみ作成）
+- [x] CDK スナップショットテスト（8 件、全パス）
+- [ ] Lambda 関数 `pipeline` 実装 ← 次フェーズ（別 PR）
   - [ ] `core/collector.py`（HF Daily Papers + arXiv + HF Trending 取得、重複排除）
   - [ ] `core/scorer.py`（Claude Haiku でスコアリング、バッチ処理）
   - [ ] `core/notifier.py`（要約 + Slack Block Kit 投稿）
   - [ ] `lambda_function.py`（ハンドラ、エラーハンドリング）
-- [ ] CloudWatch Billing アラート $10/月 設定
 
 ## Phase 3: テスト・デプロイ
 

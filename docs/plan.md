@@ -70,7 +70,7 @@
 | Lambda 1関数構成 | 月30回・1実行5分以内の規模で責務分離はソースコード内のモジュール分割で十分。Step Functionsは状態管理が必要になってから |
 | Amazon DynamoDB (オンデマンド) | スキーマ柔軟、無料枠で初期データ量を吸収 |
 | Amazon EventBridge Scheduler | cron式でタイムゾーン指定可能、Lambda起動の標準パターン |
-| AWS Secrets Manager | Claude APIキー、Slack Webhook URL、興味プロンプトを保管 |
+| AWS Systems Manager Parameter Store standard | Claude APIキー、Slack Webhook URL、興味プロンプトを SecureString で保管。CDK では枠を作らず（CFn制約）、デプロイ後に CLI で投入 |
 | Anthropic Claude API（Haiku 4.5） | スコアリング・要約とも Haiku 4.5 で実用十分。1ヶ月運用後に精度を見て Sonnet 4.6 への切替を判断 |
 | HF Daily Papers API | 人手キュレーション×コミュニティUpvoteの一次ソース |
 | arXiv API | 公式新着取得、レート制限緩い |
@@ -107,10 +107,10 @@ Notion DB連携、過去論文検索UI、週次サマリ機能。
 | AWS Lambda（30回実行、1024MB、平均2分） | 無料枠内 |
 | DynamoDB オンデマンド（月数千リクエスト） | 無料枠内 |
 | EventBridge Scheduler | 無料枠内 |
-| AWS Secrets Manager（3シークレット） | $1.20 |
-| **合計** | **$2-4 / 月** |
+| AWS SSM Parameter Store standard（3パラメータ） | 無料 |
+| **合計** | **$1-2 / 月** |
 
-予算上限 $10/月 の範囲内に十分収まる。
+予算上限 $10/月 に対し、Secrets Manager 比でさらに $1.20/月節約。
 
 ## 8. リスクと対策
 
@@ -119,12 +119,12 @@ Notion DB連携、過去論文検索UI、週次サマリ機能。
 | Claude APIレート制限 | スコアリングを10本/呼び出しのバッチ化、tenacityでリトライ |
 | HF API仕様変更 | 取得失敗時はarXivのみで継続、Slack に警告通知 |
 | 配信内容の品質ムラ | Phase 2でフィードバック学習を導入、必要なら Sonnet 4.6 切替 |
-| シークレット漏洩 | Secrets Manager + IAM最小権限、`.gitignore` 厳守 |
+| シークレット漏洩 | SSM SecureString（KMS暗号化）+ IAM最小権限、`.gitignore` 厳守 |
 | AWS料金暴騰 | CloudWatch Billing アラート $10/月 設定 |
 
 ## 9. 興味プロンプト（スコアリング基準）
 
-Secrets Manager に格納する初期プロンプト。Phase 2以降で動的更新できる仕組みを検討する。
+SSM Parameter Store の `/ai-paper-radar/runtime/INTEREST_PROMPT` に格納する初期プロンプト。Phase 2以降で動的更新できる仕組みを検討する。
 
 ```
 私はクラウドアーキテクト兼開発者です。以下の領域に強い関心があります。

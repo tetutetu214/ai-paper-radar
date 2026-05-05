@@ -14,7 +14,7 @@
 
 - Python 3.12 + uv
 - AWS CDK (Python)
-- AWS Lambda / DynamoDB / EventBridge Scheduler / Secrets Manager
+- AWS Lambda / DynamoDB / EventBridge Scheduler / SSM Parameter Store
 - Anthropic Claude API（Haiku 4.5）
 - Hugging Face Daily Papers + arXiv + HF Trending Papers
 
