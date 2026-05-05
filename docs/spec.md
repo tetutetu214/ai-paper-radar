@@ -340,7 +340,7 @@ Slack Incoming Webhook に Block Kit 形式で投稿する。
 | Lambda Layer | `aws_lambda_python_alpha.PythonLayerVersion` | requirements.txt から自動構築 |
 | IAM Role (Lambda) | `aws_iam.Role` | DynamoDB R/W、SSM GetParameter*、KMS Decrypt（alias/aws/ssm）、CloudWatch Logs |
 | EventBridge Schedule | `aws_scheduler.CfnSchedule` | cron(0 21 * * ? *)、ターゲット: Lambda |
-| CloudWatch Alarm | `aws_cloudwatch.Alarm` | Estimated Charges > $10、SNS通知（任意） |
+| AWS Budgets | `aws_budgets.CfnBudget` | $10/月、80%閾値でメール通知（Context `notification_email` 指定時のみ作成）|
 | CloudWatch Log Group | `aws_logs.LogGroup` | 保持期間 30日 |
 
 ### 7.3 IAMポリシー（Lambda実行ロール、最小権限）

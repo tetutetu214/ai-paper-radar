@@ -132,6 +132,23 @@ ap-northeast-1（東京）。既存の他プロジェクト（chicken-knowledge-
 
 ---
 
+## 7. AWS Budgets を採用（Billing アラート方式の選択、2026-05-05）
+
+CloudWatch Alarm + Billing メトリクスから AWS Budgets に変更。
+
+**判断根拠**:
+- CloudWatch Billing メトリクスは **us-east-1 リージョン限定**で取得可能。本プロジェクトの主リージョン ap-northeast-1 とずれる
+- Cross-region Stack を作るのは複雑（CDK の `crossRegionReferences=True` 等が必要）
+- AWS Budgets はグローバルサービス、リージョン非依存
+- メール通知が標準で、SNS Topic 経由より簡単
+
+**実装上の注意**:
+- メール通知先はコードにハードコードせず、CDK Context（`-c notification_email=...`）で渡す
+- Context 未指定時は Budget リソースを作成しない（オプショナル化、CI/CD 柔軟性のため）
+- 80% 閾値で通知（$8 で警告）、ACTUAL（実コスト）モード
+
+---
+
 ## 6. SSM Parameter Store 採用の判断（2026-05-05）
 
 シークレット保管先を Secrets Manager から SSM Parameter Store standard に変更。

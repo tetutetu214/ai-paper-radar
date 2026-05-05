@@ -6,6 +6,7 @@ from aws_cdk import (
     Duration,
     RemovalPolicy,
     Stack,
+    aws_budgets as budgets,
     aws_dynamodb as dynamodb,
     aws_iam as iam,
     aws_lambda as lambda_,
@@ -138,4 +139,37 @@ class AiPaperRadarStack(Stack):
             state="ENABLED",
         )
 
-        # TODO: CloudWatch Billing Alarm $10/月
+        # 月次予算アラート（AWS Budgets）
+        # CloudWatch Billing メトリクスは us-east-1 限定だが、Budgets はリージョン非依存
+        # 通知先メアドは Context で指定: cdk deploy -c notification_email=user@example.com
+        notification_email = self.node.try_get_context("notification_email")
+        if notification_email:
+            budgets.CfnBudget(
+                self,
+                "MonthlyCostBudget",
+                budget=budgets.CfnBudget.BudgetDataProperty(
+                    budget_type="COST",
+                    budget_limit=budgets.CfnBudget.SpendProperty(
+                        amount=10,
+                        unit="USD",
+                    ),
+                    time_unit="MONTHLY",
+                    budget_name="ai-paper-radar-monthly",
+                ),
+                notifications_with_subscribers=[
+                    budgets.CfnBudget.NotificationWithSubscribersProperty(
+                        notification=budgets.CfnBudget.NotificationProperty(
+                            comparison_operator="GREATER_THAN",
+                            notification_type="ACTUAL",
+                            threshold=80,
+                            threshold_type="PERCENTAGE",
+                        ),
+                        subscribers=[
+                            budgets.CfnBudget.SubscriberProperty(
+                                address=notification_email,
+                                subscription_type="EMAIL",
+                            ),
+                        ],
+                    ),
+                ],
+            )
