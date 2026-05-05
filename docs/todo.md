@@ -15,14 +15,14 @@
 - [x] オーケストレーション方式の決定（Lambda 1本化）
 - [x] LLMモデルの決定（Claude Haiku 4.5 全工程）
 
-## Phase 1: 仕様策定
+## Phase 1: 仕様策定 ✅ 完了
 
-- [ ] **spec.md 詳細化**（DynamoDBスキーマ、Lambda I/O、Claudeプロンプト、CDK構成）← 今ここ
-- [ ] spec.md のてつてつ確認
-- [ ] CDK プロジェクト初期化（`cdk init app --language python`）
-- [ ] `pyproject.toml`、`.gitignore`、`.env.example` 作成
-- [ ] `~/.secrets/ai-paper-radar.env` 作成（てつてつ手動）
-- [ ] GitHub リポジトリ作成（パブリック + Secret Scanning有効化）
+- [x] spec.md 詳細化（DynamoDBスキーマ、Lambda I/O、Claudeプロンプト、CDK構成）
+- [x] spec.md のてつてつ確認
+- [x] CDK プロジェクト初期化（uv + npm ローカル方式）
+- [x] `pyproject.toml`、`.gitignore`、`.env.example` 作成
+- [x] `~/.secrets/ai-paper-radar.env` テンプレート作成（実値はてつてつが投入）
+- [x] GitHub リポジトリ作成（パブリック + Secret Scanning + Push Protection 有効化）
 
 ## Phase 2: 実装（MVP）
 
