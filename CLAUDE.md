@@ -17,7 +17,7 @@
   - AWS Lambda（Python 3.12ランタイム）
   - Amazon DynamoDB（オンデマンドモード）
   - Amazon EventBridge Scheduler
-  - AWS Secrets Manager
+  - AWS Systems Manager (SSM) Parameter Store standard（SecureString）
   - Amazon CloudWatch Logs / Billing Alarm
 - **外部API**:
   - Anthropic Claude API（Haiku 4.5、Phase 2以降で必要なら Sonnet 4.6 切替）
@@ -63,7 +63,7 @@ ai-paper-radar/
 - `SLACK_WEBHOOK_URL`
 - `INTEREST_PROMPT`（興味記述、Phase 1で固定値、Phase 2で更新可能化）
 
-本番では Secrets Manager から取得。ローカル開発時のみ `~/.secrets/ai-paper-radar.env` から読み込む。
+本番では SSM Parameter Store から取得（パス `/ai-paper-radar/runtime/*`）。ローカル開発時のみ `~/.secrets/ai-paper-radar.env` から読み込む。
 
 ## 開発ルール（プロジェクト固有）
 

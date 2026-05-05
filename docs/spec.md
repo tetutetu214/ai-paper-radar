@@ -116,23 +116,25 @@
 
 | 変数名 | 内容 |
 |--------|------|
-| `SECRETS_NAME` | Secrets Manager のシークレット名 |
+| `SSM_PARAMETER_PATH_PREFIX` | SSM Parameter Store のパスプレフィックス（例: `/ai-paper-radar/runtime/`）|
 | `DYNAMODB_TABLE_NAME` | テーブル名 |
 | `LOG_LEVEL` | `INFO` または `DEBUG` |
 | `MAX_PAPERS_PER_DAY` | 1日あたりの収集上限（デフォルト 50） |
 | `TOP_N_DELIVERY` | 配信本数（デフォルト 3） |
 
-### 4.3 Secrets Manager 構造
+### 4.3 SSM Parameter Store 構造
 
-シークレット名: `ai-paper-radar/runtime`
+パスプレフィックス: `/ai-paper-radar/runtime/`
 
-```json
-{
-  "ANTHROPIC_API_KEY": "sk-ant-...",
-  "SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/...",
-  "INTEREST_PROMPT": "私はクラウドアーキテクト兼開発者です。..."
-}
-```
+| パラメータ名 | 内容 | 型 |
+|------|------|------|
+| `/ai-paper-radar/runtime/ANTHROPIC_API_KEY` | Anthropic API キー | SecureString |
+| `/ai-paper-radar/runtime/SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | SecureString |
+| `/ai-paper-radar/runtime/INTEREST_PROMPT` | 興味プロンプト（日本語、複数行可）| SecureString |
+
+KMS キー: `alias/aws/ssm`（AWS 管理キー、暗号化無料）
+
+**重要な制約**: SecureString パラメータは CloudFormation/CDK で作成不可（AWS の公式制約）。CDK では Lambda 実行ロールへの権限付与（`ssm:GetParameter*` + `kms:Decrypt`）のみを行い、パラメータ実体はデプロイ後に AWS CLI で投入する。詳細は §7.5 を参照。
 
 ### 4.4 入出力
 
@@ -151,7 +153,7 @@
 
 ```python
 def handler(event, context):
-    secrets = load_secrets(SECRETS_NAME)
+    params = load_parameters(SSM_PARAMETER_PATH_PREFIX)
     table = dynamodb.Table(DYNAMODB_TABLE_NAME)
 
     # Step 1: 収集
@@ -162,13 +164,13 @@ def handler(event, context):
     # Step 2: スコアリング（バッチ10本ずつ）
     unscored = scorer.fetch_unscored(table, today)
     for batch in chunks(unscored, 10):
-        scores = scorer.score_with_claude(batch, secrets["INTEREST_PROMPT"])
+        scores = scorer.score_with_claude(batch, params["INTEREST_PROMPT"])
         scorer.update_scores(table, scores)
 
     # Step 3: 配信
     top_n = notifier.fetch_top_n(table, today, n=TOP_N_DELIVERY)
     summaries = notifier.summarize_with_claude(top_n)
-    notifier.post_to_slack(summaries, secrets["SLACK_WEBHOOK_URL"])
+    notifier.post_to_slack(summaries, params["SLACK_WEBHOOK_URL"])
     notifier.mark_delivered(table, top_n)
 
     return {"collected": ..., "scored": ..., "delivered": ...}
@@ -333,10 +335,10 @@ Slack Incoming Webhook に Block Kit 形式で投稿する。
 | リソース | CDK コンストラクト | 主要プロパティ |
 |----------|-------------------|----------------|
 | DynamoDB Table | `aws_dynamodb.Table` | PAY_PER_REQUEST、TTL `ttl`、GSI 1個、削除保護: 開発時OFF |
-| Secrets Manager | `aws_secretsmanager.Secret` | 値は CDK には含めず、デプロイ後に手動投入 |
+| SSM Parameter Store | （CDK では枠を作らず、Lambda 実行ロールへの権限付与のみ）| SecureString は CFn 非対応、デプロイ後 CLI で投入 |
 | Lambda Function | `aws_lambda.Function` | Python 3.12、arm64、1024MB、5分、環境変数3個 |
 | Lambda Layer | `aws_lambda_python_alpha.PythonLayerVersion` | requirements.txt から自動構築 |
-| IAM Role (Lambda) | `aws_iam.Role` | DynamoDB R/W、Secrets Manager Read、CloudWatch Logs |
+| IAM Role (Lambda) | `aws_iam.Role` | DynamoDB R/W、SSM GetParameter*、KMS Decrypt（alias/aws/ssm）、CloudWatch Logs |
 | EventBridge Schedule | `aws_scheduler.CfnSchedule` | cron(0 21 * * ? *)、ターゲット: Lambda |
 | CloudWatch Alarm | `aws_cloudwatch.Alarm` | Estimated Charges > $10、SNS通知（任意） |
 | CloudWatch Log Group | `aws_logs.LogGroup` | 保持期間 30日 |
@@ -345,7 +347,26 @@ Slack Incoming Webhook に Block Kit 形式で投稿する。
 
 ```python
 table.grant_read_write_data(lambda_function)
-secret.grant_read(lambda_function)
+# SSM Parameter Store からの SecureString 取得を許可
+lambda_function.add_to_role_policy(
+    iam.PolicyStatement(
+        actions=["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"],
+        resources=[
+            f"arn:aws:ssm:{Stack.of(self).region}:{Stack.of(self).account}"
+            f":parameter/ai-paper-radar/runtime/*"
+        ],
+    )
+)
+# KMS 復号権限（SecureString 用、AWS 管理キー alias/aws/ssm）
+lambda_function.add_to_role_policy(
+    iam.PolicyStatement(
+        actions=["kms:Decrypt"],
+        resources=[
+            f"arn:aws:kms:{Stack.of(self).region}:{Stack.of(self).account}"
+            f":alias/aws/ssm"
+        ],
+    )
+)
 # CloudWatch Logs は basic execution role に含まれる
 ```
 
@@ -357,12 +378,24 @@ cdk diff            # 差分確認
 cdk deploy          # デプロイ（てつてつ承認後）
 ```
 
-### 7.5 シークレット投入手順（デプロイ後）
+### 7.5 SSM Parameter 投入手順（デプロイ後）
+
+`~/.secrets/ai-paper-radar.env` から値を読み込み、SecureString として個別に投入する：
 
 ```bash
-aws secretsmanager put-secret-value \
-  --secret-id ai-paper-radar/runtime \
-  --secret-string file://~/.secrets/ai-paper-radar-secret.json
+# シークレットを環境変数にロード
+set -a && . ~/.secrets/ai-paper-radar.env && set +a
+
+# 3 パラメータを SecureString で投入
+aws ssm put-parameter --name /ai-paper-radar/runtime/ANTHROPIC_API_KEY \
+  --type SecureString --value "$ANTHROPIC_API_KEY" \
+  --overwrite --profile ai-paper-radar
+aws ssm put-parameter --name /ai-paper-radar/runtime/SLACK_WEBHOOK_URL \
+  --type SecureString --value "$SLACK_WEBHOOK_URL" \
+  --overwrite --profile ai-paper-radar
+aws ssm put-parameter --name /ai-paper-radar/runtime/INTEREST_PROMPT \
+  --type SecureString --value "$INTEREST_PROMPT" \
+  --overwrite --profile ai-paper-radar
 ```
 
 ---
@@ -409,7 +442,7 @@ tenacity
 # pyproject.toml の dev-dependencies
 pytest
 pytest-cov
-moto[dynamodb,secretsmanager]
+moto[dynamodb,ssm]
 mypy
 ruff
 aws-cdk-lib
@@ -448,7 +481,7 @@ python -m lambdas.pipeline.lambda_function
 ## 10. 確認をお願いしたい点
 
 1. DynamoDB のキー構造（PK = paper_id、GSI = collected_date + score_padded）でよいか
-2. Secrets Manager のキー名（`ANTHROPIC_API_KEY` / `SLACK_WEBHOOK_URL` / `INTEREST_PROMPT`）でよいか
+2. SSM Parameter Store のパス（`/ai-paper-radar/runtime/{ANTHROPIC_API_KEY,SLACK_WEBHOOK_URL,INTEREST_PROMPT}`）でよいか
 3. Lambda メモリ 1024MB / タイムアウト 5分でよいか（過剰なら 512MB / 3分に絞る）
 4. Slack 投稿フォーマット（Block Kit、上記サンプル）でよいか
 5. CDK スタック1個構成でよいか（基盤層分離はしない）

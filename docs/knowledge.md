@@ -132,6 +132,25 @@ ap-northeast-1（東京）。既存の他プロジェクト（chicken-knowledge-
 
 ---
 
+## 6. SSM Parameter Store 採用の判断（2026-05-05）
+
+シークレット保管先を Secrets Manager から SSM Parameter Store standard に変更。
+
+**判断根拠**:
+- 個人用 3 シークレットで自動ローテーション不要（Anthropic/Slack のキーは AWS 外部発行のため、AWS 側で回しても無意味）
+- 各値が 4KB 上限内に余裕で収まる（最大の INTEREST_PROMPT で約 600 バイト）
+- KMS 暗号化（SecureString）で機密性は Secrets Manager と同等
+- 月額コスト $1.20 → $0、年 $14 削減
+
+**重要な制約（実装上のハマりポイント）**:
+SecureString パラメータは CloudFormation/CDK で**作成できない**（AWS 公式制約）。
+そのため CDK では Lambda 実行ロールへの権限付与（`ssm:GetParameter*` + `kms:Decrypt` for `alias/aws/ssm`）のみを行い、
+パラメータ実体は `aws ssm put-parameter --type SecureString` で**デプロイ後に手動投入**する。
+
+参考: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ssm-parameter.html
+
+---
+
 ## 5. 学習済み概念
 
 理解度テストハーネス（`~/.claude/CLAUDE.md` 「理解度テストハーネス」ルール）で正答した概念。次回以降のテスト判定に利用する。

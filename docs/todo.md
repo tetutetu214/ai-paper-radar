@@ -26,7 +26,7 @@
 
 ## Phase 2: 実装（MVP）
 
-- [ ] CDK スタック実装（DynamoDB, Secrets Manager, Lambda, EventBridge, IAM）
+- [ ] CDK スタック実装（DynamoDB, Lambda, EventBridge, IAM、SSM 権限付与）
 - [ ] Lambda 関数 `pipeline` 実装
   - [ ] `core/collector.py`（HF Daily Papers + arXiv + HF Trending 取得、重複排除）
   - [ ] `core/scorer.py`（Claude Haiku でスコアリング、バッチ処理）

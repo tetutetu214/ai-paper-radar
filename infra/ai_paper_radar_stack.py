@@ -41,7 +41,7 @@ class AiPaperRadarStack(Stack):
             ),
         )
 
-        # TODO: Secrets Manager シークレット ai-paper-radar/runtime
+        # TODO: Lambda 実行ロールに SSM Parameter Store 権限を付与（パラメータ実体は手動投入）
         # TODO: Lambda 関数 ai-paper-radar-pipeline
         # TODO: EventBridge Scheduler cron(0 21 * * ? *) = JST 6:00
         # TODO: CloudWatch Billing Alarm $10/月
