@@ -10,6 +10,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_lambda as lambda_,
     aws_logs as logs,
+    aws_scheduler as scheduler,
 )
 from constructs import Construct
 
@@ -109,5 +110,32 @@ class AiPaperRadarStack(Stack):
             )
         )
 
-        # TODO: EventBridge Scheduler cron(0 21 * * ? *) = JST 6:00
+        # EventBridge Scheduler が Lambda を invoke するための IAM Role
+        scheduler_role = iam.Role(
+            self,
+            "PipelineSchedulerRole",
+            assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com"),
+            description="Allows EventBridge Scheduler to invoke ai-paper-radar-pipeline",
+        )
+        self.pipeline_fn.grant_invoke(scheduler_role)
+
+        # EventBridge Scheduler: 毎日 JST 6:00 に Lambda を起動
+        # タイムゾーン Asia/Tokyo を指定することで、UTC 換算なしに直接 6 時を書ける
+        scheduler.CfnSchedule(
+            self,
+            "PipelineSchedule",
+            name="ai-paper-radar-daily",
+            description="Trigger ai-paper-radar-pipeline every JST 6:00",
+            schedule_expression="cron(0 6 * * ? *)",
+            schedule_expression_timezone="Asia/Tokyo",
+            flexible_time_window=scheduler.CfnSchedule.FlexibleTimeWindowProperty(
+                mode="OFF",
+            ),
+            target=scheduler.CfnSchedule.TargetProperty(
+                arn=self.pipeline_fn.function_arn,
+                role_arn=scheduler_role.role_arn,
+            ),
+            state="ENABLED",
+        )
+
         # TODO: CloudWatch Billing Alarm $10/月
