@@ -177,3 +177,7 @@ SecureString パラメータは CloudFormation/CDK で**作成できない**（A
 | AWS CDK の Construct（L1/L2/L3）| 2026-05-05 | AWSリソースを抽象化したクラス。L1=CFn直結、L2=プロパティ簡略化・デフォルト値あり、L3=複数リソースをまとめたパターン。本プロジェクトは主に L2 を使う |
 | Lambda 1関数構成 vs Step Functions のトレードオフ | 2026-05-05 | 規模が小さく状態管理が不要なら Lambda 単体。15分超え・並列化・途中再開が必要なら Step Functions を導入。月30回バッチでは Lambda が最適 |
 | Lambda 実行ロール（IAM Role）| 2026-05-05 | Lambda が他AWSサービスを呼ぶには実行ロールに必要権限を Allow するポリシーをアタッチ。アクセスキー埋め込みは禁止。CDKでは `table.grant_read_write_data(fn)` 等のメソッドで一行記述可能 |
+| Anthropic Tool Use の本質 | 2026-05-06 | JSON 強制出力に Anthropic 公式が推奨する方法。`response_format` パラメータは Anthropic に存在しない（OpenAI の機能）。tools に input_schema 込みで定義し tool_choice で強制実行、レスポンスは `response.content` の `type=='tool_use'` ブロックの `.input`（dict、json.loads 不要）|
+| Anthropic vs OpenAI のレスポンス構造 | 2026-05-06 | OpenAI: `response.choices[0].message.{content,tool_calls}` / Anthropic: `response.content`（ブロックリスト、各 .type で分岐）。混同すると AttributeError |
+| DynamoDB Query vs Scan の使い分け | 2026-05-06 | Scan はテーブル全体を走査するため遅くて高い。GSI を Query で利用し PK で絞ってから FilterExpression で属性を絞るのが効率的。本プロジェクトは `gsi_collected_date_score` を利用 |
+| 外部 API リトライ戦略（tenacity）| 2026-05-06 | デコレータでリトライ回数・指数バックオフ・jitter・対象例外を宣言的に書ける。`@retry(wait=wait_exponential_jitter(initial=1, max=60), stop=stop_after_attempt(3), retry=retry_if_exception_type(...))` のような定型 |
