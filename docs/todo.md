@@ -29,11 +29,13 @@
 - [x] CDK スタック実装（DynamoDB, Lambda, EventBridge, IAM、SSM 権限付与）
 - [x] AWS Budgets $10/月（Context `notification_email` 指定時のみ作成）
 - [x] CDK スナップショットテスト（8 件、全パス）
-- [ ] Lambda 関数 `pipeline` 実装 ← 次フェーズ（別 PR）
-  - [ ] `core/collector.py`（HF Daily Papers + arXiv + HF Trending 取得、重複排除）
-  - [ ] `core/scorer.py`（Claude Haiku でスコアリング、バッチ処理）
-  - [ ] `core/notifier.py`（要約 + Slack Block Kit 投稿）
-  - [ ] `lambda_function.py`（ハンドラ、エラーハンドリング）
+- [x] Lambda 関数 `pipeline` 実装
+  - [x] `core/settings.py`（SSM Parameter Store からの一括取得、lru_cache）
+  - [x] `core/collector.py`（HF Daily Papers + arXiv + HF Trending 取得、重複排除、DynamoDB upsert）
+  - [x] `core/scorer.py`（Claude Haiku Tool Use で 10本バッチスコアリング）
+  - [x] `core/notifier.py`（Claude Haiku で日本語要約 + Slack Block Kit 投稿）
+  - [x] `lambda_function.py`（ハンドラ統合、ステップ別エラー集約）
+- [x] ユニットテスト（29 件全パス、moto + requests-mock + Anthropic SDK モック）
 
 ## Phase 3: テスト・デプロイ
 
