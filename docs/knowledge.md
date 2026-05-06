@@ -181,3 +181,4 @@ SecureString パラメータは CloudFormation/CDK で**作成できない**（A
 | Anthropic vs OpenAI のレスポンス構造 | 2026-05-06 | OpenAI: `response.choices[0].message.{content,tool_calls}` / Anthropic: `response.content`（ブロックリスト、各 .type で分岐）。混同すると AttributeError |
 | DynamoDB Query vs Scan の使い分け | 2026-05-06 | Scan はテーブル全体を走査するため遅くて高い。GSI を Query で利用し PK で絞ってから FilterExpression で属性を絞るのが効率的。本プロジェクトは `gsi_collected_date_score` を利用 |
 | 外部 API リトライ戦略（tenacity）| 2026-05-06 | デコレータでリトライ回数・指数バックオフ・jitter・対象例外を宣言的に書ける。`@retry(wait=wait_exponential_jitter(initial=1, max=60), stop=stop_after_attempt(3), retry=retry_if_exception_type(...))` のような定型 |
+| CDK Stack のライフサイクルと CDK 管理外リソース | 2026-05-06 | `cdk destroy` で消えるのは Stack 内のリソース（CFn テンプレに含まれるもの）だけ。SecureString は CFn 非対応のため CDK では権限付与だけ行い、パラメータ実体は別管理。完全リセットには `cdk destroy` の後に `aws ssm delete-parameter` が必要 |
