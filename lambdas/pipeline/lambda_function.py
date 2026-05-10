@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boto3
-from anthropic import Anthropic
+from anthropic import AnthropicBedrock
 
 from core import collector, notifier, scorer
 from core.settings import get_settings
@@ -32,7 +32,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(settings.dynamodb_table_name)
-    anthropic_client = Anthropic(api_key=settings.anthropic_api_key)
+    # Bedrock 経由（IAM 認証）。aws_region は Lambda の実行リージョン
+    anthropic_client = AnthropicBedrock(aws_region=settings.aws_region)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     errors: list[str] = []
 

@@ -23,7 +23,7 @@ def aws_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def settings_mock() -> MagicMock:
     s = MagicMock()
     s.dynamodb_table_name = "test-papers"
-    s.anthropic_api_key = "sk-test"
+    s.aws_region = "ap-northeast-1"
     s.slack_webhook_url = "https://hooks.slack.com/test"
     s.interest_prompt = "テスト"
     s.top_n_delivery = 3
@@ -77,6 +77,7 @@ def test_handler_runs_full_pipeline(
 
     with (
         patch("lambda_function.get_settings", return_value=settings_mock),
+        patch("lambda_function.AnthropicBedrock"),
         patch("lambda_function.collector.fetch_all", return_value=sample_papers),
         patch(
             "lambda_function.scorer.score_papers",
@@ -117,6 +118,7 @@ def test_handler_collects_errors_from_step_failures(
 
     with (
         patch("lambda_function.get_settings", return_value=settings_mock),
+        patch("lambda_function.AnthropicBedrock"),
         patch(
             "lambda_function.collector.fetch_all",
             side_effect=RuntimeError("collect fail"),

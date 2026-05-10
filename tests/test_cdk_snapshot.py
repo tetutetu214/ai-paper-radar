@@ -147,3 +147,105 @@ def test_resource_counts() -> None:
     # Lambda 本体 + log_retention 用の Custom Resource Lambda
     template.resource_count_is("AWS::Lambda::Function", 2)
     template.resource_count_is("AWS::Scheduler::Schedule", 1)
+
+
+def test_lambda_role_has_bedrock_invoke_permission() -> None:
+    """Lambda 実行ロールに global cross-Region inference 公式 3-Statement の権限があること。
+
+    出典: https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html
+    """
+    template = _make_template()
+    model_id = "anthropic.claude-haiku-4-5-20251001-v1:0"
+
+    # ① ソース inference profile への呼び出し（自リージョン限定）
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        Match.object_like(
+            {
+                "PolicyDocument": Match.object_like(
+                    {
+                        "Statement": Match.array_with(
+                            [
+                                Match.object_like(
+                                    {
+                                        "Sid": "GrantGlobalCrisInferenceProfileRegionAccess",
+                                        "Action": "bedrock:InvokeModel",
+                                        "Effect": "Allow",
+                                        "Condition": {
+                                            "StringEquals": {
+                                                "aws:RequestedRegion": Match.any_value(),
+                                            },
+                                        },
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            }
+        ),
+    )
+
+    # ② 自リージョンの Foundation Model（ローカル処理時）
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        Match.object_like(
+            {
+                "PolicyDocument": Match.object_like(
+                    {
+                        "Statement": Match.array_with(
+                            [
+                                Match.object_like(
+                                    {
+                                        "Sid": "GrantGlobalCrisInferenceProfileInRegionModelAccess",
+                                        "Action": "bedrock:InvokeModel",
+                                        "Effect": "Allow",
+                                        "Condition": {
+                                            "StringEquals": Match.object_like(
+                                                {
+                                                    "bedrock:InferenceProfileArn": Match.any_value(),
+                                                }
+                                            ),
+                                        },
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            }
+        ),
+    )
+
+    # ③ グローバル Foundation Model（他リージョン経路、ARN のリージョン部空 + RequestedRegion=unspecified）
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        Match.object_like(
+            {
+                "PolicyDocument": Match.object_like(
+                    {
+                        "Statement": Match.array_with(
+                            [
+                                Match.object_like(
+                                    {
+                                        "Sid": "GrantGlobalCrisInferenceProfileGlobalModelAccess",
+                                        "Action": "bedrock:InvokeModel",
+                                        "Effect": "Allow",
+                                        "Resource": f"arn:aws:bedrock:::foundation-model/{model_id}",
+                                        "Condition": {
+                                            "StringEquals": Match.object_like(
+                                                {
+                                                    "aws:RequestedRegion": "unspecified",
+                                                    "bedrock:InferenceProfileArn": Match.any_value(),
+                                                }
+                                            ),
+                                        },
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            }
+        ),
+    )

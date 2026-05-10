@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Final
 
-from anthropic import Anthropic
+from anthropic import AnthropicBedrock
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -17,7 +17,8 @@ from tenacity import (
 logger = logging.getLogger(__name__)
 
 
-SCORER_MODEL: Final[str] = "claude-haiku-4-5-20251001"
+# Bedrock Global Cross-Region Inference Profile（複数リージョンに自動分散）
+SCORER_MODEL: Final[str] = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 SCORER_BATCH_SIZE: Final[int] = 10
 ABSTRACT_MAX_CHARS: Final[int] = 1000
 
@@ -71,7 +72,7 @@ def fetch_unscored_papers(
 
 
 def score_papers(
-    client: Anthropic,
+    client: AnthropicBedrock,
     papers: list[dict[str, Any]],
     interest_prompt: str,
 ) -> list[dict[str, Any]]:
@@ -96,7 +97,7 @@ def score_papers(
     wait=wait_exponential_jitter(initial=2, max=20),
 )
 def _score_batch(
-    client: Anthropic,
+    client: AnthropicBedrock,
     batch: list[dict[str, Any]],
     interest_prompt: str,
 ) -> list[dict[str, Any]]:

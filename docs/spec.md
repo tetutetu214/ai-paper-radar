@@ -128,9 +128,10 @@
 
 | パラメータ名 | 内容 | 型 |
 |------|------|------|
-| `/ai-paper-radar/runtime/ANTHROPIC_API_KEY` | Anthropic API キー | SecureString |
 | `/ai-paper-radar/runtime/SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | SecureString |
 | `/ai-paper-radar/runtime/INTEREST_PROMPT` | 興味プロンプト（日本語、複数行可）| SecureString |
+
+Anthropic Claude は Bedrock 経由で IAM 認証するため API キーを SSM に保管しない（`bedrock:InvokeModel` 権限で代替）。
 
 KMS キー: `alias/aws/ssm`（AWS 管理キー、暗号化無料）
 
@@ -240,11 +241,13 @@ abstract: ...
 
 ### 5.3 JSON強制方法
 
-Anthropic Messages API の `tool_choice` を使った function calling 形式でstructured outputを強制する。
+Anthropic Messages API の `tool_choice` を使った function calling 形式でstructured outputを強制する。Bedrock 経由でも `AnthropicBedrock` クラスを使えば Direct API と同じシグネチャで呼べる。
 
 ```python
+from anthropic import AnthropicBedrock
+client = AnthropicBedrock(aws_region="ap-northeast-1")
 response = client.messages.create(
-    model="claude-haiku-4-5-20251001",
+    model="global.anthropic.claude-haiku-4-5-20251001-v1:0",
     max_tokens=2048,
     system=SYSTEM_PROMPT,
     tools=[{
@@ -338,7 +341,7 @@ Slack Incoming Webhook に Block Kit 形式で投稿する。
 | SSM Parameter Store | （CDK では枠を作らず、Lambda 実行ロールへの権限付与のみ）| SecureString は CFn 非対応、デプロイ後 CLI で投入 |
 | Lambda Function | `aws_lambda.Function` | Python 3.12、arm64、1024MB、5分、環境変数3個 |
 | Lambda Layer | `aws_lambda_python_alpha.PythonLayerVersion` | requirements.txt から自動構築 |
-| IAM Role (Lambda) | `aws_iam.Role` | DynamoDB R/W、SSM GetParameter*、KMS Decrypt（alias/aws/ssm）、CloudWatch Logs |
+| IAM Role (Lambda) | `aws_iam.Role` | DynamoDB R/W、SSM GetParameter*、KMS Decrypt（alias/aws/ssm）、Bedrock InvokeModel（global. inference profile + foundation-model）、CloudWatch Logs |
 | EventBridge Schedule | `aws_scheduler.CfnSchedule` | cron(0 21 * * ? *)、ターゲット: Lambda |
 | AWS Budgets | `aws_budgets.CfnBudget` | $10/月、80%閾値でメール通知（Context `notification_email` 指定時のみ作成）|
 | CloudWatch Log Group | `aws_logs.LogGroup` | 保持期間 30日 |
@@ -380,23 +383,29 @@ cdk deploy          # デプロイ（てつてつ承認後）
 
 ### 7.5 SSM Parameter 投入手順（デプロイ後）
 
-`~/.secrets/ai-paper-radar.env` から値を読み込み、SecureString として個別に投入する：
+`~/.secrets/ai-paper-radar.env` から値を読み込み、SecureString として個別に投入する。Anthropic API キーは Bedrock 経由で不要のため、投入対象は **2 件のみ**：
 
 ```bash
 # シークレットを環境変数にロード
 set -a && . ~/.secrets/ai-paper-radar.env && set +a
 
-# 3 パラメータを SecureString で投入
-aws ssm put-parameter --name /ai-paper-radar/runtime/ANTHROPIC_API_KEY \
-  --type SecureString --value "$ANTHROPIC_API_KEY" \
-  --overwrite --profile ai-paper-radar
+# 2 パラメータを SecureString で投入
 aws ssm put-parameter --name /ai-paper-radar/runtime/SLACK_WEBHOOK_URL \
   --type SecureString --value "$SLACK_WEBHOOK_URL" \
-  --overwrite --profile ai-paper-radar
+  --overwrite --profile ai-paper-radar --region ap-northeast-1
 aws ssm put-parameter --name /ai-paper-radar/runtime/INTEREST_PROMPT \
   --type SecureString --value "$INTEREST_PROMPT" \
-  --overwrite --profile ai-paper-radar
+  --overwrite --profile ai-paper-radar --region ap-northeast-1
 ```
+
+### 7.6 Bedrock model access 有効化（デプロイ前 1 回のみ）
+
+Bedrock の Anthropic Claude Haiku 4.5 を初めて使うには、AWS Console での利用申請が必要（IAM 権限を付与しても model access が無効だと InvokeModel が AccessDeniedException で失敗する）。
+
+1. AWS Console → Amazon Bedrock → 左サイドバー「Model access」を開く
+2. リージョンを `ap-northeast-1` に切替
+3. 「Modify model access」 → Anthropic の **Claude Haiku 4.5** にチェック → Submit
+4. 数十秒〜数分で `Access granted` になる
 
 ---
 

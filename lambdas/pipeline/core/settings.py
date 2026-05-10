@@ -24,7 +24,7 @@ class RuntimeSettings:
     log_level: str
     max_papers_per_day: int
     top_n_delivery: int
-    anthropic_api_key: str
+    aws_region: str
     slack_webhook_url: str
     interest_prompt: str
 
@@ -40,6 +40,8 @@ def get_settings() -> RuntimeSettings:
     log_level = os.environ.get("LOG_LEVEL", "INFO")
     max_papers = int(os.environ.get("MAX_PAPERS_PER_DAY", "50"))
     top_n = int(os.environ.get("TOP_N_DELIVERY", "3"))
+    # AWS_REGION は Lambda 実行環境で自動セットされる
+    aws_region = os.environ.get("AWS_REGION", "ap-northeast-1")
 
     params = _load_ssm_parameters(ssm_prefix)
 
@@ -49,7 +51,7 @@ def get_settings() -> RuntimeSettings:
         log_level=log_level,
         max_papers_per_day=max_papers,
         top_n_delivery=top_n,
-        anthropic_api_key=params["ANTHROPIC_API_KEY"],
+        aws_region=aws_region,
         slack_webhook_url=params["SLACK_WEBHOOK_URL"],
         interest_prompt=params["INTEREST_PROMPT"],
     )
@@ -67,7 +69,7 @@ def _load_ssm_parameters(path_prefix: str) -> dict[str, str]:
         Recursive=False,
     ):
         for param in page.get("Parameters", []):
-            # /ai-paper-radar/runtime/ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY
+            # /ai-paper-radar/runtime/SLACK_WEBHOOK_URL -> SLACK_WEBHOOK_URL
             key = param["Name"].rsplit("/", 1)[-1]
             result[key] = param["Value"]
 
