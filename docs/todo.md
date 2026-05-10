@@ -47,10 +47,12 @@
 - [x] **Bedrock 経由への切替** PR #3 作成（2026-05-10、`feature/bedrock-migration`）
 - [x] PR #3 を main に squash マージ（2026-05-10、sha 79bdbcc）
 - [x] Bedrock 化後の `cdk deploy` 再実行（IAM 差分のみ、2026-05-10、37 秒で UPDATE_COMPLETE）
-- [ ] AWS Console で Bedrock の Anthropic Claude Haiku 4.5 model access を有効化
+- [x] AWS Console で Bedrock の Anthropic Claude Haiku 4.5 model access を有効化（2026-05-10）
 - [x] SSM SecureString 2 件投入（`SLACK_WEBHOOK_URL` / `INTEREST_PROMPT`、API キーは Bedrock で不要化、2026-05-10）
-- [ ] Lambda の手動 invoke で初回動作確認（Slack に届くか、CloudWatch Logs に異常なし）
-- [ ] 1 週間の試験運用、配信品質チェック
+- [x] Lambda アーキ不整合 fix PR #4 マージ → x86_64 で deploy（2026-05-10、sha e88cefb）
+- [x] Lambda の手動 invoke で初回動作確認（2026-05-10、collected=50/scored=50/delivered=3、所要 50.9 秒、エラーなし、Bedrock 全 8 回呼び出し 200 OK）
+- [x] Slack 配信内容の品質確認（2026-05-10、Block Kit 構造正常、3 行要約に数値結果含む、採用理由は否定的観点も記述）
+- [ ] 1 週間の試験運用、配信品質チェック（2026-05-11 朝 JST 6:00 から自動配信開始）
 - [ ] 本番デプロイ（必要なら別スタック名・別リージョン構成）
 
 ## Phase 4: 振り返り・拡張検討

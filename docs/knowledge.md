@@ -126,6 +126,21 @@ ap-northeast-1（東京）。既存の他プロジェクト（chicken-knowledge-
 
 ## 4. ハマったポイント・要注意事項
 
+### 4.0 Phase 4 申し送り：要約の DynamoDB 保存（2026-05-10）
+
+`notifier.py` は配信時に `title_ja` / `summary_ja` をメモリ上で生成して Slack に POST するが、DynamoDB には書き戻していない。`mark_delivered` は `delivered_at` のみ更新。
+
+**現状の挙動（バグではなく仕様未定義）**:
+- spec.md §3.4 では `summary_ja` (S, △) の項目が定義されているが「DB に保存する」とは明記なし
+- 実装は「配信対象のみ生成（メモリ）」に振っており保存していない
+- Slack 投稿には正しく要約が入っている（2026-05-10 配信実機確認済み）
+
+**Phase 4 で改善する場合のメリ・デメ**:
+- 保存する: 配信ログを DB だけで完結確認可能、再表示時に Bedrock 再呼び出し不要
+- 保存しない（現状）: DB 書き込み回数を抑えられる
+
+個人用かつ毎日 3 件配信なら月 90 行の追加更新でコストはほぼ無視可能。Phase 4 で「保存する」方向に振ると運用しやすい。
+
 ### 4.1 Lambda アーキテクチャと native 拡張のクロスコンパイル問題（2026-05-10）
 
 Phase 3 デプロイ後の Lambda 手動 invoke で `Runtime.ImportModuleError: No module named 'pydantic_core._pydantic_core'` が発生。
