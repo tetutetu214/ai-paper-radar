@@ -126,9 +126,29 @@ ap-northeast-1（東京）。既存の他プロジェクト（chicken-knowledge-
 
 ## 4. ハマったポイント・要注意事項
 
-（プロジェクト進行中に追記していく）
+### 4.1 Lambda アーキテクチャと native 拡張のクロスコンパイル問題（2026-05-10）
 
-- 現時点なし
+Phase 3 デプロイ後の Lambda 手動 invoke で `Runtime.ImportModuleError: No module named 'pydantic_core._pydantic_core'` が発生。
+
+**原因の連鎖**:
+- Lambda 関数アーキテクチャは arm64 にしていた（コスト 20% 削減狙い）
+- bundling Docker は WSL2 ホスト（x86_64）で動くため、`pip install -r requirements.txt -t /asset-output` がホスト用 wheel を取得 → pydantic_core の x86_64 .so が Layer に入る
+- arm64 Lambda はその .so を読めず ImportError
+- Phase 2 時点では anthropic Direct API 利用で pydantic に間接依存していたが import パスを通らず顕在化せず、Bedrock 移行で boto3 経由 botocore.auth が pydantic を使う import パスに変わって発覚
+
+**試した方法と次の壁**:
+- `--platform manylinux2014_aarch64 --only-binary=:all:` を追加 → pydantic_core は OK だが、feedparser の依存 sgmllib3k は pure Python なのに wheel が PyPI に登録されておらず（古いパッケージ）、`--only-binary` 縛りで sdist build を禁じてしまうため fail
+
+**最終的な解決策**:
+- Lambda アーキテクチャを **x86_64** に変更（WSL2 ホストと一致、bundling のクロスアーキ問題自体を消す）
+- arm64 維持の代替案（2 段階 pip install / arm64 native Docker + QEMU）はあるが、月 $1〜2 のシステムでコスト 20% 差は微々たるためシンプルさ優先
+
+**学んだこと**:
+- Lambda の bundling 設計は「関数アーキテクチャ」と「ホスト Docker のアーキテクチャ」が一致しているかを必ずチェックする
+- `--only-binary=:all:` は強力だが、wheel 提供のない古い pure Python パッケージで詰まる罠あり
+- pydantic_core のような Rust 製 native 拡張は wheel ファイル名に platform tag（`manylinux2014_aarch64` 等）が入っている → 入っていない `.whl` はアーキ非依存（pure Python）
+
+---
 
 ---
 

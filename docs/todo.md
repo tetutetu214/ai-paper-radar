@@ -45,10 +45,10 @@
 - [x] `cdk synth` / `cdk diff` による事前確認 → 11 リソース新規、IAM は最小権限で確認（2026-05-06）
 - [x] dev 環境（ap-northeast-1）へ `cdk deploy` → 13/13 CREATE_COMPLETE（2026-05-06）
 - [x] **Bedrock 経由への切替** PR #3 作成（2026-05-10、`feature/bedrock-migration`）
-- [ ] PR #3 を main にマージ
+- [x] PR #3 を main に squash マージ（2026-05-10、sha 79bdbcc）
+- [x] Bedrock 化後の `cdk deploy` 再実行（IAM 差分のみ、2026-05-10、37 秒で UPDATE_COMPLETE）
 - [ ] AWS Console で Bedrock の Anthropic Claude Haiku 4.5 model access を有効化
-- [ ] Bedrock 化後の `cdk deploy` 再実行（IAM 差分のみ）
-- [ ] SSM SecureString 2 件投入（`SLACK_WEBHOOK_URL` / `INTEREST_PROMPT`、API キーは Bedrock で不要化）
+- [x] SSM SecureString 2 件投入（`SLACK_WEBHOOK_URL` / `INTEREST_PROMPT`、API キーは Bedrock で不要化、2026-05-10）
 - [ ] Lambda の手動 invoke で初回動作確認（Slack に届くか、CloudWatch Logs に異常なし）
 - [ ] 1 週間の試験運用、配信品質チェック
 - [ ] 本番デプロイ（必要なら別スタック名・別リージョン構成）

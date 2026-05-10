@@ -67,7 +67,7 @@ def test_lambda_function_created() -> None:
             {
                 "FunctionName": "ai-paper-radar-pipeline",
                 "Runtime": "python3.12",
-                "Architectures": ["arm64"],
+                "Architectures": ["x86_64"],
                 "MemorySize": 1024,
                 "Timeout": 300,
                 "Handler": "lambda_function.handler",
