@@ -49,13 +49,15 @@ class AiPaperRadarStack(Stack):
         )
 
         # Lambda パイプライン関数
-        # bundling: Docker で requirements.txt の依存パッケージを Lambda 用に zip 化
+        # bundling: Docker で requirements.txt の依存パッケージを Lambda 用に zip 化。
+        # 関数アーキテクチャは x86_64。開発ホスト（WSL2 x86_64）と一致させて
+        # native 拡張（pydantic_core 等）のクロスコンパイル問題を回避する。
         self.pipeline_fn = lambda_.Function(
             self,
             "PipelineFunction",
             function_name="ai-paper-radar-pipeline",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            architecture=lambda_.Architecture.ARM_64,
+            architecture=lambda_.Architecture.X86_64,
             handler="lambda_function.handler",
             code=lambda_.Code.from_asset(
                 "lambdas/pipeline",

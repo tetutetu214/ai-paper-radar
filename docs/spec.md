@@ -109,7 +109,7 @@
 - **ランタイム**: Python 3.12
 - **メモリ**: 1024 MB
 - **タイムアウト**: 300秒（5分）
-- **アーキテクチャ**: arm64（コスト削減）
+- **アーキテクチャ**: x86_64（開発ホスト WSL2 と一致させ native 拡張のクロスコンパイル問題を回避）
 - **ハンドラ**: `lambda_function.handler`
 
 ### 4.2 環境変数
@@ -339,7 +339,7 @@ Slack Incoming Webhook に Block Kit 形式で投稿する。
 |----------|-------------------|----------------|
 | DynamoDB Table | `aws_dynamodb.Table` | PAY_PER_REQUEST、TTL `ttl`、GSI 1個、削除保護: 開発時OFF |
 | SSM Parameter Store | （CDK では枠を作らず、Lambda 実行ロールへの権限付与のみ）| SecureString は CFn 非対応、デプロイ後 CLI で投入 |
-| Lambda Function | `aws_lambda.Function` | Python 3.12、arm64、1024MB、5分、環境変数3個 |
+| Lambda Function | `aws_lambda.Function` | Python 3.12、x86_64、1024MB、5分、環境変数3個 |
 | Lambda Layer | `aws_lambda_python_alpha.PythonLayerVersion` | requirements.txt から自動構築 |
 | IAM Role (Lambda) | `aws_iam.Role` | DynamoDB R/W、SSM GetParameter*、KMS Decrypt（alias/aws/ssm）、Bedrock InvokeModel（global. inference profile + foundation-model）、CloudWatch Logs |
 | EventBridge Schedule | `aws_scheduler.CfnSchedule` | cron(0 21 * * ? *)、ターゲット: Lambda |
