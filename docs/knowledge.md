@@ -132,6 +132,30 @@ ap-northeast-1（東京）。既存の他プロジェクト（chicken-knowledge-
 
 ---
 
+## 8. Anthropic Claude を Bedrock 経由へ移行（2026-05-06）
+
+Phase 3 デプロイ後、Anthropic Direct API 利用から **Amazon Bedrock 経由** へ切り替え。
+
+**判断根拠**:
+- API キー管理が不要になる（IAM 認証で完結、漏洩リスク削減）
+- 課金が AWS にまとまり、Budget で一括監視できる
+- Lambda 実行ロールのみで認証されるため、SSM パラメータが 1 件減る（3 → 2）
+- `anthropic` SDK の `AnthropicBedrock` クラスは Direct 版と messages API シグネチャが同じで、ロジックの書き換え不要
+
+**Inference Profile 選定**:
+- `global.anthropic.claude-haiku-4-5-20251001-v1:0` を採用（てつてつの選択、2026-05-06）
+- `jp.` は日本国内ルーティング限定で data residency 上は安全だが、global の方が可用性とスループットが高い
+- 論文タイトル・アブストラクト・興味プロンプトはいずれも公開可能な内容で、国外経由のリスクは無視できる
+
+**重要な制約（実装上のハマりポイント）**:
+- Bedrock model access の **AWS Console 手動有効化が必須**。IAM 権限を付与しても、Console で Anthropic モデルを Enable していないと InvokeModel は AccessDeniedException で失敗する
+- Global Cross-Region Inference Profile は宛先リージョンが全 commercial Region に分散し得るため、IAM Resource ARN に `arn:aws:bedrock:*::foundation-model/...` のワイルドカード指定が必要（公式手順）
+- `bedrock:InvokeModel` の Resource は **2 つ必要**: ① ソース側の inference profile ARN ② 宛先側の foundation model ARN
+
+参考: https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html
+
+---
+
 ## 7. AWS Budgets を採用（Billing アラート方式の選択、2026-05-05）
 
 CloudWatch Alarm + Billing メトリクスから AWS Budgets に変更。
@@ -182,3 +206,5 @@ SecureString パラメータは CloudFormation/CDK で**作成できない**（A
 | DynamoDB Query vs Scan の使い分け | 2026-05-06 | Scan はテーブル全体を走査するため遅くて高い。GSI を Query で利用し PK で絞ってから FilterExpression で属性を絞るのが効率的。本プロジェクトは `gsi_collected_date_score` を利用 |
 | 外部 API リトライ戦略（tenacity）| 2026-05-06 | デコレータでリトライ回数・指数バックオフ・jitter・対象例外を宣言的に書ける。`@retry(wait=wait_exponential_jitter(initial=1, max=60), stop=stop_after_attempt(3), retry=retry_if_exception_type(...))` のような定型 |
 | CDK Stack のライフサイクルと CDK 管理外リソース | 2026-05-06 | `cdk destroy` で消えるのは Stack 内のリソース（CFn テンプレに含まれるもの）だけ。SecureString は CFn 非対応のため CDK では権限付与だけ行い、パラメータ実体は別管理。完全リセットには `cdk destroy` の後に `aws ssm delete-parameter` が必要 |
+| Bedrock Cross-Region Inference Profile の本質 | 2026-05-06 | `global.` / `jp.` などのプロファイル ID は単独のモデル参照ではなく、複数の宛先リージョンに分散ルーティングするロードバランサ。IAM では「ソース inference profile ARN」と「宛先 foundation-model ARN（リージョン *）」の両方を `bedrock:InvokeModel` で許可する必要がある（片方だけでは失敗）|
+| Bedrock model access 有効化と IAM の二段階制御 | 2026-05-06 | Bedrock は IAM の `bedrock:InvokeModel` だけでは呼べない。AWS Console の「Model access」で各 Anthropic モデルを Enable する手動操作が別途必要。IAM = 誰が呼べるか、model access = そもそも呼べるか、の二段構え |

@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Final
 
 import requests
-from anthropic import Anthropic
+from anthropic import AnthropicBedrock
 from boto3.dynamodb.conditions import Key
 from tenacity import (
     retry,
@@ -18,7 +18,8 @@ from tenacity import (
 logger = logging.getLogger(__name__)
 
 
-SUMMARIZER_MODEL: Final[str] = "claude-haiku-4-5-20251001"
+# Bedrock Global Cross-Region Inference Profile（複数リージョンに自動分散）
+SUMMARIZER_MODEL: Final[str] = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 ABSTRACT_MAX_CHARS: Final[int] = 1500
 
 SUMMARY_SYSTEM_PROMPT: Final[str] = """\
@@ -64,7 +65,7 @@ def fetch_top_n(
 
 
 def summarize_papers(
-    client: Anthropic, papers: list[dict[str, Any]]
+    client: AnthropicBedrock, papers: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """各論文を日本語要約し、title_ja / summary_ja を追加して返す。"""
     enriched: list[dict[str, Any]] = []
@@ -88,7 +89,7 @@ def summarize_papers(
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential_jitter(initial=2, max=20))
 def _summarize_one(
-    client: Anthropic, paper: dict[str, Any]
+    client: AnthropicBedrock, paper: dict[str, Any]
 ) -> dict[str, Any]:
     user_message = (
         f"title: {paper.get('title', '')}\n\n"

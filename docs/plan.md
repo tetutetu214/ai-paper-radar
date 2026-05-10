@@ -70,8 +70,8 @@
 | Lambda 1関数構成 | 月30回・1実行5分以内の規模で責務分離はソースコード内のモジュール分割で十分。Step Functionsは状態管理が必要になってから |
 | Amazon DynamoDB (オンデマンド) | スキーマ柔軟、無料枠で初期データ量を吸収 |
 | Amazon EventBridge Scheduler | cron式でタイムゾーン指定可能、Lambda起動の標準パターン |
-| AWS Systems Manager Parameter Store standard | Claude APIキー、Slack Webhook URL、興味プロンプトを SecureString で保管。CDK では枠を作らず（CFn制約）、デプロイ後に CLI で投入 |
-| Anthropic Claude API（Haiku 4.5） | スコアリング・要約とも Haiku 4.5 で実用十分。1ヶ月運用後に精度を見て Sonnet 4.6 への切替を判断 |
+| AWS Systems Manager Parameter Store standard | Slack Webhook URL、興味プロンプトを SecureString で保管。CDK では枠を作らず（CFn制約）、デプロイ後に CLI で投入 |
+| Amazon Bedrock 経由 Claude Haiku 4.5 | IAM 認証で API キー不要。`global.anthropic.claude-haiku-4-5-20251001-v1:0` Global Cross-Region Inference Profile で複数リージョンに自動分散。スコアリング・要約とも Haiku 4.5 で実用十分。1ヶ月運用後に精度を見て Sonnet 4.6 への切替を判断 |
 | HF Daily Papers API | 人手キュレーション×コミュニティUpvoteの一次ソース |
 | arXiv API | 公式新着取得、レート制限緩い |
 
@@ -103,7 +103,7 @@ Notion DB連携、過去論文検索UI、週次サマリ機能。
 
 | 項目 | 試算 |
 |------|------|
-| Claude Haiku 4.5（スコアリング 50本/日 + 要約 3本/日 × 30日） | 約 $1-2 |
+| Bedrock 経由 Claude Haiku 4.5（スコアリング 50本/日 + 要約 3本/日 × 30日） | 約 $1-2 |
 | AWS Lambda（30回実行、1024MB、平均2分） | 無料枠内 |
 | DynamoDB オンデマンド（月数千リクエスト） | 無料枠内 |
 | EventBridge Scheduler | 無料枠内 |
@@ -119,7 +119,7 @@ Notion DB連携、過去論文検索UI、週次サマリ機能。
 | Claude APIレート制限 | スコアリングを10本/呼び出しのバッチ化、tenacityでリトライ |
 | HF API仕様変更 | 取得失敗時はarXivのみで継続、Slack に警告通知 |
 | 配信内容の品質ムラ | Phase 2でフィードバック学習を導入、必要なら Sonnet 4.6 切替 |
-| シークレット漏洩 | SSM SecureString（KMS暗号化）+ IAM最小権限、`.gitignore` 厳守 |
+| シークレット漏洩 | Anthropic API キー自体を Bedrock 経由で不要化、SSM SecureString（KMS暗号化）+ IAM最小権限、`.gitignore` 厳守 |
 | AWS料金暴騰 | CloudWatch Billing アラート $10/月 設定 |
 
 ## 9. 興味プロンプト（スコアリング基準）

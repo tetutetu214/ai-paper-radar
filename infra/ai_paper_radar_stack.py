@@ -111,6 +111,67 @@ class AiPaperRadarStack(Stack):
             )
         )
 
+        # 権限: Bedrock Claude Haiku 4.5 を Global Cross-Region Inference Profile 経由で呼ぶ
+        # 公式手順（https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html）
+        # の 3-Statement 構造で最小権限を実装する:
+        #   ① ソース: 自リージョンの global. inference profile への InvokeModel 許可
+        #   ② 宛先: 自リージョンの Foundation Model（Bedrock がローカル処理した場合）
+        #   ③ 宛先: グローバルの Foundation Model（他リージョンへルーティングされた場合、ARN のリージョン部は空）
+        # Statement ②③ には bedrock:InferenceProfileArn 一致条件を付け、jp. などの
+        # 別 CRIS profile からこの FM を呼ぶ経路を禁止する（最小権限の核）
+        bedrock_model_id = "anthropic.claude-haiku-4-5-20251001-v1:0"
+        inference_profile_arn = (
+            f"arn:aws:bedrock:{self.region}:{self.account}"
+            f":inference-profile/global.{bedrock_model_id}"
+        )
+
+        self.pipeline_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                sid="GrantGlobalCrisInferenceProfileRegionAccess",
+                actions=["bedrock:InvokeModel"],
+                resources=[inference_profile_arn],
+                conditions={
+                    "StringEquals": {
+                        "aws:RequestedRegion": self.region,
+                    },
+                },
+            )
+        )
+
+        self.pipeline_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                sid="GrantGlobalCrisInferenceProfileInRegionModelAccess",
+                actions=["bedrock:InvokeModel"],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}::foundation-model/{bedrock_model_id}"
+                ],
+                conditions={
+                    "StringEquals": {
+                        "aws:RequestedRegion": self.region,
+                        "bedrock:InferenceProfileArn": inference_profile_arn,
+                    },
+                },
+            )
+        )
+
+        # ARN のリージョン部が空（"arn:aws:bedrock:::..."）なのは仕様で、
+        # global cross-Region 時は aws:RequestedRegion が "unspecified" になる
+        self.pipeline_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                sid="GrantGlobalCrisInferenceProfileGlobalModelAccess",
+                actions=["bedrock:InvokeModel"],
+                resources=[
+                    f"arn:aws:bedrock:::foundation-model/{bedrock_model_id}"
+                ],
+                conditions={
+                    "StringEquals": {
+                        "aws:RequestedRegion": "unspecified",
+                        "bedrock:InferenceProfileArn": inference_profile_arn,
+                    },
+                },
+            )
+        )
+
         # EventBridge Scheduler が Lambda を invoke するための IAM Role
         scheduler_role = iam.Role(
             self,

@@ -20,7 +20,7 @@
   - AWS Systems Manager (SSM) Parameter Store standard（SecureString）
   - Amazon CloudWatch Logs / Billing Alarm
 - **外部API**:
-  - Anthropic Claude API（Haiku 4.5、Phase 2以降で必要なら Sonnet 4.6 切替）
+  - Amazon Bedrock 経由 Claude Haiku 4.5（IAM 認証、`global.anthropic.claude-haiku-4-5-20251001-v1:0` Global Cross-Region Inference Profile）
   - Hugging Face Daily Papers API
   - arXiv API
   - Slack Incoming Webhook
@@ -59,11 +59,12 @@ ai-paper-radar/
 実体は `~/.secrets/ai-paper-radar.env` に保存し、リポジトリには `.env.example` のみコミットする。
 
 管理対象:
-- `ANTHROPIC_API_KEY`
 - `SLACK_WEBHOOK_URL`
 - `INTEREST_PROMPT`（興味記述、Phase 1で固定値、Phase 2で更新可能化）
 
 本番では SSM Parameter Store から取得（パス `/ai-paper-radar/runtime/*`）。ローカル開発時のみ `~/.secrets/ai-paper-radar.env` から読み込む。
+
+Anthropic Claude は Amazon Bedrock 経由で呼ぶため API キー管理は不要（Lambda 実行ロールの `bedrock:InvokeModel` 権限で認証）。
 
 ## 開発ルール（プロジェクト固有）
 
