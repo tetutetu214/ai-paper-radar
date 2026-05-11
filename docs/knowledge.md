@@ -277,3 +277,6 @@ SecureString パラメータは CloudFormation/CDK で**作成できない**（A
 | Bedrock model access 有効化と IAM の二段階制御 | 2026-05-06 | Bedrock は IAM の `bedrock:InvokeModel` だけでは呼べない。AWS Console の「Model access」で各 Anthropic モデルを Enable する手動操作が別途必要。IAM = 誰が呼べるか、model access = そもそも呼べるか、の二段構え |
 | Bedrock 移行による認証モデルの本質変化 | 2026-05-10 | Direct API は API キーをコードと SSM の両方で守護していたが、Bedrock 経由は Lambda 実行ロールの IAM 権限のみで完結する。長期存在する機密シークレット自体をシステムから消せるのが価値（PR #3 作成直前テストで確認）|
 | Global CRIS の 3-Statement IAM 設計 | 2026-05-10 | Statement ① ソース inference profile（自リージョン限定）、② 自リージョンの foundation-model（ローカル処理経路）、③ ARN リージョン部空 + `aws:RequestedRegion=unspecified` の foundation-model（他リージョンへルーティングされた経路）。③ がないと CRIS が他リージョンにルーティングしたとき AccessDeniedException で失敗する（PR #3 作成直前テストで確認）|
+| DynamoDB put_item vs update_item の本質的違い | 2026-05-11 | put_item は項目を完全置換（含めない属性は消える）、update_item は UpdateExpression に書いた属性だけ触る。スキーマが増育する設計（収集→採点→配信でフィールド追加）では put_item で全上書きすると後段で追加された属性が消えるので update_item を使うべき（PR #5 作成直前テストで確認）|
+| バグ修正の選択軸：最小修正範囲と伝播リスク | 2026-05-11 | 修正案を複数比較するとき、Bedrock 呼び出し数や read コストではなく「他モジュールへの伝播リスク」と「修正の局所性」を優先する。collector の修正だけで scorer/notifier の I/F を変えない案を採用することで、テスト・レビュー・回帰リスクを最小化（PR #5 作成直前テストで確認）|
+| ステップ拡張スキーマの再実行安全性 | 2026-05-11 | 1レコードに対して複数のパイプラインステップが属性を追加していくスキーマ（収集→採点→配信）では、前段の再実行で後段属性が消えないかを必ずテストする。本件は「翌日の collector が score を上書き」が長期間気付かれなかった典型例（PR #5 作成直前テストで確認）|
