@@ -1,4 +1,5 @@
 """notifier モジュールのテスト。"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -67,9 +68,7 @@ def test_build_blocks_structure() -> None:
     assert blocks[0]["type"] == "header"
     assert "2026-05-05" in blocks[0]["text"]["text"]
     # 論文セクションが含まれる
-    section_texts = [
-        b["text"]["text"] for b in blocks if b["type"] == "section"
-    ]
+    section_texts = [b["text"]["text"] for b in blocks if b["type"] == "section"]
     paper_section = next(s for s in section_texts if "2401.13782" in s)
     assert "Tweets to Citations" in paper_section
     assert "87" in paper_section
@@ -99,9 +98,8 @@ def test_post_to_slack_sends_blocks(requests_mock: rm_module.Mocker) -> None:
     assert any(b["type"] == "header" for b in body["blocks"])
 
 
-@mock_aws
-def test_fetch_top_n_uses_gsi() -> None:
-    """GSI でスコア降順、上位 N を取得できる。"""
+def _create_papers_table_with_gsi() -> Any:
+    """テスト用に GSI 付きの論文テーブルを作る。"""
     dynamodb = boto3.resource("dynamodb", region_name="ap-northeast-1")
     table = dynamodb.create_table(
         TableName="test-papers",
@@ -124,6 +122,13 @@ def test_fetch_top_n_uses_gsi() -> None:
         BillingMode="PAY_PER_REQUEST",
     )
     table.wait_until_exists()
+    return table
+
+
+@mock_aws
+def test_fetch_top_n_uses_gsi() -> None:
+    """GSI でスコア降順、上位 N を取得できる。"""
+    table = _create_papers_table_with_gsi()
     for pid, score in [("p1", 50), ("p2", 87), ("p3", 30), ("p4", 95)]:
         table.put_item(
             Item={
@@ -137,6 +142,60 @@ def test_fetch_top_n_uses_gsi() -> None:
     top3 = notifier.fetch_top_n(table, "2026-05-05", n=3)
     paper_ids = [i["paper_id"] for i in top3]
     assert paper_ids == ["p4", "p2", "p1"]  # 95, 87, 50
+
+
+@mock_aws
+def test_fetch_top_n_excludes_already_delivered() -> None:
+    """delivered_at が設定済みの論文は除外される（連日同一配信防止）。"""
+    table = _create_papers_table_with_gsi()
+    # p4(95) は配信済み、p2(87) も配信済み、p1(50) と p3(30) は未配信
+    seeds = [
+        ("p1", 50, None),
+        ("p2", 87, "2026-05-04T21:00:00"),
+        ("p3", 30, None),
+        ("p4", 95, "2026-05-04T21:00:00"),
+    ]
+    for pid, score, delivered in seeds:
+        item: dict[str, Any] = {
+            "paper_id": pid,
+            "collected_date": "2026-05-05",
+            "score": score,
+            "score_padded": f"{score:03d}",
+        }
+        if delivered is not None:
+            item["delivered_at"] = delivered
+        table.put_item(Item=item)
+
+    top3 = notifier.fetch_top_n(table, "2026-05-05", n=3)
+    paper_ids = [i["paper_id"] for i in top3]
+    # 配信済みの p4, p2 は除外され、未配信の p1 (50), p3 (30) のみが返る
+    assert paper_ids == ["p1", "p3"]
+
+
+@mock_aws
+def test_fetch_top_n_returns_less_than_n_when_few_unscored_remaining() -> None:
+    """未配信が n 件未満でも、ある分だけ返す（エラーにしない）。"""
+    table = _create_papers_table_with_gsi()
+    # 4 件中 3 件配信済み、未配信は p3 のみ
+    seeds = [
+        ("p1", 50, "2026-05-04T21:00:00"),
+        ("p2", 87, "2026-05-04T21:00:00"),
+        ("p3", 30, None),
+        ("p4", 95, "2026-05-04T21:00:00"),
+    ]
+    for pid, score, delivered in seeds:
+        item: dict[str, Any] = {
+            "paper_id": pid,
+            "collected_date": "2026-05-05",
+            "score": score,
+            "score_padded": f"{score:03d}",
+        }
+        if delivered is not None:
+            item["delivered_at"] = delivered
+        table.put_item(Item=item)
+
+    result = notifier.fetch_top_n(table, "2026-05-05", n=3)
+    assert [i["paper_id"] for i in result] == ["p3"]
 
 
 @mock_aws

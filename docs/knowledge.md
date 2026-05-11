@@ -197,6 +197,37 @@ Phase 3 自動配信開始日（2026-05-11）に、Bedrock のトークン使用
 
 ---
 
+### 4.3 連日同一配信問題と未配信フィルタの追加（2026-05-11）
+
+§4.2 の修正（既存論文 score 保持）だけだと別の問題が浮上することがレビュー中に判明。
+
+**問題**:
+- collector が既存レコードの `collected_date` を毎日「今日」に上書きしている
+- `notifier.fetch_top_n` は GSI を `collected_date = 今日` で引き、score 降順で Top N を取る
+- しかも `delivered_at` での除外をしていなかった
+- 結果: 昨日 score=92 で配信された論文が、翌日もそのまま Top 3 に登場 → **連日まったく同じ Slack 投稿になる**
+- §4.2 修正前は毎日全件再採点していたので、Claude Haiku の非決定性で偶然順位が入れ替わっていたが、§4.2 で score を保持するようになると「偶然の救済」が消えてこの問題が顕在化する
+
+**修正方針（PR #5 内に追加コミット、案 E: 未配信フィルタ）**:
+- `notifier.fetch_top_n` の GSI Query に `FilterExpression=Attr("delivered_at").not_exists()` を追加
+- `Limit=n` を GSI Query 段階では指定しない（FilterExpression と組み合わせると Limit 適用後にフィルタされて N 未満になりがちなため）
+- 全件 Query → Python 側で `[:n]` にスライス（1 日の収集上限が 50 件程度なので全件読みでも問題なし）
+
+**採用しなかった選択肢**:
+- 案 D（`collected_date` を初収集日のまま保持）: 「昨日トレンド入りしたが配信されなかった論文を今日再評価する」経路を失う
+- 案 F（N 日の冷却期間付き再配信）: ロジックが複雑、てつてつの「一度配信したら次は外す」というシンプル方針と合わない
+
+**学んだこと**:
+- DynamoDB の Query で `FilterExpression` と `Limit` を併用する場合、`Limit` は **「フィルタ前の件数」** に適用される（フィルタ後ではない）。N 件確実に欲しいなら、Limit を広めに取るか Limit を外して Python 側で絞る
+- 「日次配信」コンセプトのアプリでは、配信済みフラグでの除外は **GSI Query の段階で**やるべき。後段で気付くと修正コストが上がる
+- バグ修正の副作用：1 つのバグを直すと、それまで偶然マスクされていた別のバグが顕在化することがある（put_item 全置換 → 全件再採点 → 非決定性で順位入れ替わり、という偶然の連鎖が壊れる）
+
+**検証**:
+- `tests/test_notifier.py::test_fetch_top_n_excludes_already_delivered` で配信済みが除外されることを検証
+- `tests/test_notifier.py::test_fetch_top_n_returns_less_than_n_when_few_unscored_remaining` で n 未満でもエラーにならないことを検証
+
+---
+
 ---
 
 ## 8. Anthropic Claude を Bedrock 経由へ移行（2026-05-06）
