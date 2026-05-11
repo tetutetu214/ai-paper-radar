@@ -5,6 +5,7 @@
 - arXiv API: http://export.arxiv.org/api/query
 - HF Trending Papers: https://huggingface.co/api/papers?sort=trending
 """
+
 from __future__ import annotations
 
 import logging
@@ -194,7 +195,13 @@ def _normalize_arxiv_id(raw_id: str) -> str:
 
 
 def upsert_dynamodb(table: Any, papers: list[Paper]) -> int:
-    """DynamoDB に upsert（既存ならソース・upvote をマージ、なければ新規）。"""
+    """DynamoDB に upsert。
+
+    既存レコードがある場合は update_item で可変メタデータのみ更新し、
+    score/score_padded/score_reason/summary_ja/delivered_at は保持する。
+    これにより HF Trending などで複数日にまたがって出現する論文が、
+    毎日再採点・再要約されてしまう問題を防ぐ。
+    """
     now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
     ttl = int((now + timedelta(days=90)).timestamp())
@@ -202,28 +209,71 @@ def upsert_dynamodb(table: Any, papers: list[Paper]) -> int:
 
     for paper in papers:
         existing = table.get_item(Key={"paper_id": paper.paper_id}).get("Item")
-        merged_sources: set[str] = set(paper.sources)
         if existing:
-            existing_sources = existing.get("source")
-            if isinstance(existing_sources, (set, list)):
-                merged_sources.update(existing_sources)
-            merged_upvotes = max(paper.upvotes, int(existing.get("upvotes", 0)))
+            _update_existing_item(table, paper, existing, now, today, ttl)
         else:
-            merged_upvotes = paper.upvotes
-
-        item: dict[str, Any] = {
-            "paper_id": paper.paper_id,
-            "title": paper.title,
-            "authors": paper.authors,
-            "abstract": paper.abstract,
-            "published_at": paper.published_at,
-            "collected_at": now.isoformat(),
-            "collected_date": today,
-            "source": merged_sources,
-            "upvotes": merged_upvotes,
-            "ttl": ttl,
-        }
-        table.put_item(Item=item)
+            _put_new_item(table, paper, now, today, ttl)
         upserted += 1
 
     return upserted
+
+
+def _update_existing_item(
+    table: Any,
+    paper: Paper,
+    existing: dict[str, Any],
+    now: datetime,
+    today: str,
+    ttl: int,
+) -> None:
+    """既存レコードを更新。score 系の属性は触らない。"""
+    existing_upvotes = int(existing.get("upvotes", 0))
+    merged_upvotes = max(paper.upvotes, existing_upvotes)
+
+    # source は予約語ではないが、可読性のため #src エイリアスで統一
+    expr_attr_names: dict[str, str] = {"#src": "source", "#ttl": "ttl"}
+    expr_attr_values: dict[str, Any] = {
+        ":t": paper.title,
+        ":a": paper.authors,
+        ":ab": paper.abstract,
+        ":p": paper.published_at,
+        ":ca": now.isoformat(),
+        ":cd": today,
+        ":u": merged_upvotes,
+        ":ttl": ttl,
+    }
+    set_clause = (
+        "SET title = :t, authors = :a, abstract = :ab, published_at = :p, "
+        "collected_at = :ca, collected_date = :cd, upvotes = :u, #ttl = :ttl"
+    )
+    update_expression = set_clause
+    # source は集合 ADD で既存値とマージ（put_item 全置換と違い score を保持）
+    if paper.sources:
+        update_expression += " ADD #src :s"
+        expr_attr_values[":s"] = set(paper.sources)
+
+    table.update_item(
+        Key={"paper_id": paper.paper_id},
+        UpdateExpression=update_expression,
+        ExpressionAttributeNames=expr_attr_names,
+        ExpressionAttributeValues=expr_attr_values,
+    )
+
+
+def _put_new_item(
+    table: Any, paper: Paper, now: datetime, today: str, ttl: int
+) -> None:
+    """新規レコードを作成。score 系は最初から存在しない。"""
+    item: dict[str, Any] = {
+        "paper_id": paper.paper_id,
+        "title": paper.title,
+        "authors": paper.authors,
+        "abstract": paper.abstract,
+        "published_at": paper.published_at,
+        "collected_at": now.isoformat(),
+        "collected_date": today,
+        "source": set(paper.sources),
+        "upvotes": paper.upvotes,
+        "ttl": ttl,
+    }
+    table.put_item(Item=item)

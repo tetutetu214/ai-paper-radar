@@ -1,6 +1,6 @@
 # AI Paper Radar — 知見・決定事項の記録
 
-> 最終更新: 2026-05-05
+> 最終更新: 2026-05-11
 
 このファイルは、プロジェクトの設計判断・調査結果・ハマったポイントを蓄積する。セッションをまたいで参照される最重要ドキュメント。
 
@@ -162,6 +162,38 @@ Phase 3 デプロイ後の Lambda 手動 invoke で `Runtime.ImportModuleError: 
 - Lambda の bundling 設計は「関数アーキテクチャ」と「ホスト Docker のアーキテクチャ」が一致しているかを必ずチェックする
 - `--only-binary=:all:` は強力だが、wheel 提供のない古い pure Python パッケージで詰まる罠あり
 - pydantic_core のような Rust 製 native 拡張は wheel ファイル名に platform tag（`manylinux2014_aarch64` 等）が入っている → 入っていない `.whl` はアーキ非依存（pure Python）
+
+---
+
+### 4.2 既存論文の毎日再採点バグと put_item の全項目置換（2026-05-11）
+
+Phase 3 自動配信開始日（2026-05-11）に、Bedrock のトークン使用量を確認したところ、手動 invoke 日（5/10）と自動配信日（5/11）の Input/Output トークン数がほぼ同一（約 22k/6.4k）で、毎日フル 50 件採点が走っていることが判明。
+
+**原因**:
+- `collector.upsert_dynamodb()` が `table.put_item()` で項目を**完全置換**していた
+- 既存レコードに付いている `score` / `score_padded` / `score_reason` / `summary_ja` / `delivered_at` が、翌日の再収集時に新しい item dict（これらの属性を含まない）で上書きされて消える
+- `scorer.fetch_unscored_papers()` は `collected_date = 今日 AND attribute_not_exists(score)` でフィルタしている → 上書き直後は全件「未採点」扱いになり、HF Trending 等で複数日にまたがって露出する論文も毎日採点し直されていた
+
+**修正方針（PR #5、案A: update_item 切替）**:
+- 既存レコードがあれば `table.update_item()` で可変メタデータ（title, authors, abstract, published_at, collected_at, collected_date, upvotes, ttl）のみ更新
+- `source` は `ADD #src :s` で集合マージ（put_item 全置換ではなく値を増やすだけ）
+- `score` 系の属性は **UpdateExpression に含めない** → DynamoDB は既存値を保持する
+- 新規レコードは従来通り `put_item` で作成（score 系は最初から存在しない）
+
+**コスト影響（想定）**:
+- 仮に日次の真の新規論文が 30%（50件中15件）と仮定すると、Bedrock 採点対象が 50 → 15 件に削減
+- 月コスト見込み: 約 250 円 → 約 75 円（年 3,050 円 → 約 900 円）
+- 絶対額は小さいが、Phase 4 で abstract 拡大・配信本数増加した場合に効く
+
+**学んだこと**:
+- `put_item` は**項目を完全置換**する操作。「一部の属性だけ更新したい」ときは `update_item` を使う
+- DynamoDB の StringSet 型は `update_item` の `ADD` 演算子で要素を追加できる（set union）。`put_item` で書き直す必要はない
+- ステップ間で属性が増えていくスキーマ（収集 → 採点 → 配信 でフィールドが追加されるパターン）は、後段で追加された属性が前段の再実行で消えないかを必ず検証する
+- 「DynamoDB Read コストを節約しよう」と get_item を省略して put_item 一発で済ませる設計は危険。本件では既に get_item で existing を読んでいたのに、なぜか put_item で全上書きしていたのが盲点だった
+
+**検証**:
+- `tests/test_collector.py::test_upsert_dynamodb_preserves_score_fields` で score/summary/delivered 系の保持を検証
+- `tests/test_collector.py::test_upsert_dynamodb_updates_mutable_fields` で可変属性が新値で更新されることを検証
 
 ---
 
