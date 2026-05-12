@@ -1,4 +1,5 @@
 """collector モジュールのテスト。"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -201,3 +202,92 @@ def test_upsert_dynamodb_merges_sources() -> None:
 
     item = table.get_item(Key={"paper_id": "2401.00001"})["Item"]
     assert item["source"] == {"hf_daily", "arxiv"}
+
+
+@mock_aws
+def test_upsert_dynamodb_preserves_score_fields() -> None:
+    """既存レコードに score/summary/delivered 系があれば、再 upsert でも保持される。
+
+    HF Trending で複数日にまたがって露出する論文が、毎日再採点されないことを保証する。
+    """
+    table = _create_table()
+    # 1日目: 新規収集 → 採点 → 配信 までの状態を再現
+    p1 = Paper(
+        paper_id="2401.00001",
+        title="Test",
+        authors=[],
+        abstract="abstract v1",
+        published_at="2024-01-01T00:00:00Z",
+        sources={"hf_daily"},
+        upvotes=5,
+    )
+    collector.upsert_dynamodb(table, [p1])
+    table.update_item(
+        Key={"paper_id": "2401.00001"},
+        UpdateExpression=(
+            "SET score = :s, score_padded = :sp, score_reason = :r, "
+            "summary_ja = :sm, delivered_at = :d"
+        ),
+        ExpressionAttributeValues={
+            ":s": 87,
+            ":sp": "087",
+            ":r": "ユーザー興味と高関連",
+            ":sm": ["要点1", "要点2", "要点3"],
+            ":d": "2024-01-01T21:00:00Z",
+        },
+    )
+
+    # 2日目: HF Trending で再露出 → 再 upsert（score 系は触らない想定）
+    p2 = Paper(
+        paper_id="2401.00001",
+        title="Test",
+        authors=[],
+        abstract="abstract v1",
+        published_at="2024-01-01T00:00:00Z",
+        sources={"hf_trending"},
+        upvotes=8,
+    )
+    collector.upsert_dynamodb(table, [p2])
+
+    item = table.get_item(Key={"paper_id": "2401.00001"})["Item"]
+    assert item["score"] == 87
+    assert item["score_padded"] == "087"
+    assert item["score_reason"] == "ユーザー興味と高関連"
+    assert item["summary_ja"] == ["要点1", "要点2", "要点3"]
+    assert item["delivered_at"] == "2024-01-01T21:00:00Z"
+    assert item["source"] == {"hf_daily", "hf_trending"}
+    assert item["upvotes"] == 8
+
+
+@mock_aws
+def test_upsert_dynamodb_updates_mutable_fields() -> None:
+    """既存レコードの title/abstract/authors は新値で上書きされる。"""
+    table = _create_table()
+    p1 = Paper(
+        paper_id="2401.00001",
+        title="Old title",
+        authors=["Old Author"],
+        abstract="Old abstract",
+        published_at="2024-01-01T00:00:00Z",
+        sources={"hf_daily"},
+        upvotes=10,
+    )
+    collector.upsert_dynamodb(table, [p1])
+
+    p2 = Paper(
+        paper_id="2401.00001",
+        title="New title",
+        authors=["New Author"],
+        abstract="New abstract",
+        published_at="2024-01-01T00:00:00Z",
+        sources={"hf_trending"},
+        upvotes=3,
+    )
+    collector.upsert_dynamodb(table, [p2])
+
+    item = table.get_item(Key={"paper_id": "2401.00001"})["Item"]
+    assert item["title"] == "New title"
+    assert item["authors"] == ["New Author"]
+    assert item["abstract"] == "New abstract"
+    # upvotes は両者の max を採用（HF API のカウントは時に減少することがあるため）
+    assert item["upvotes"] == 10

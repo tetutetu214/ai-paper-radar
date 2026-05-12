@@ -1,4 +1,5 @@
 """Slack Block Kit 形式での配信。詳細仕様は docs/spec.md §5.2, §6 を参照。"""
+
 from __future__ import annotations
 
 import logging
@@ -7,7 +8,7 @@ from typing import Any, Final
 
 import requests
 from anthropic import AnthropicBedrock
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr, Key
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -51,17 +52,23 @@ SUMMARY_TOOL: Final[dict[str, Any]] = {
 }
 
 
-def fetch_top_n(
-    table: Any, collected_date: str, n: int
-) -> list[dict[str, Any]]:
-    """指定日のスコア上位 N 本を GSI で取得（score 降順）。"""
+def fetch_top_n(table: Any, collected_date: str, n: int) -> list[dict[str, Any]]:
+    """指定日のスコア上位 N 本のうち、未配信のものを返す（score 降順）。
+
+    delivered_at が設定済みの論文は過去日に配信済みなので除外する。これにより
+    高スコア論文が連日 Top に居座り続けて毎日同じ Slack 投稿になる問題を防ぐ。
+    Limit は GSI Query 段階では指定せず（FilterExpression と組み合わせると
+    Limit 適用後にフィルタされて N 未満になりがちなため）、Python 側で n 件に
+    切り詰める。1 日の収集上限が 50 件程度なので全件読みでも問題ない。
+    """
     response = table.query(
         IndexName="gsi_collected_date_score",
         KeyConditionExpression=Key("collected_date").eq(collected_date),
         ScanIndexForward=False,
-        Limit=n,
+        FilterExpression=Attr("delivered_at").not_exists(),
     )
-    return response.get("Items", [])
+    items = response.get("Items", [])
+    return items[:n]
 
 
 def summarize_papers(
@@ -88,9 +95,7 @@ def summarize_papers(
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential_jitter(initial=2, max=20))
-def _summarize_one(
-    client: AnthropicBedrock, paper: dict[str, Any]
-) -> dict[str, Any]:
+def _summarize_one(client: AnthropicBedrock, paper: dict[str, Any]) -> dict[str, Any]:
     user_message = (
         f"title: {paper.get('title', '')}\n\n"
         f"abstract: {paper.get('abstract', '')[:ABSTRACT_MAX_CHARS]}"
@@ -122,9 +127,7 @@ def post_to_slack(webhook_url: str, papers: list[dict[str, Any]]) -> None:
     response.raise_for_status()
 
 
-def build_blocks(
-    papers: list[dict[str, Any]], date: str
-) -> list[dict[str, Any]]:
+def build_blocks(papers: list[dict[str, Any]], date: str) -> list[dict[str, Any]]:
     """Slack Block Kit 構造を組み立てる（テスト容易性のため公開）。"""
     blocks: list[dict[str, Any]] = [
         {
@@ -147,9 +150,7 @@ def build_blocks(
         title_en = paper.get("title", "")
         score = paper.get("score", 0)
         reason = paper.get("score_reason", "")
-        summary_lines = "\n".join(
-            f"• {s}" for s in paper.get("summary_ja", [])
-        )
+        summary_lines = "\n".join(f"• {s}" for s in paper.get("summary_ja", []))
 
         block_text = (
             f"*[{i}位 / score: {score}]* <{url}|{title_en}>\n"

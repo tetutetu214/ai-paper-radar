@@ -1,6 +1,6 @@
 # AI Paper Radar — 知見・決定事項の記録
 
-> 最終更新: 2026-05-05
+> 最終更新: 2026-05-11
 
 このファイルは、プロジェクトの設計判断・調査結果・ハマったポイントを蓄積する。セッションをまたいで参照される最重要ドキュメント。
 
@@ -165,6 +165,69 @@ Phase 3 デプロイ後の Lambda 手動 invoke で `Runtime.ImportModuleError: 
 
 ---
 
+### 4.2 既存論文の毎日再採点バグと put_item の全項目置換（2026-05-11）
+
+Phase 3 自動配信開始日（2026-05-11）に、Bedrock のトークン使用量を確認したところ、手動 invoke 日（5/10）と自動配信日（5/11）の Input/Output トークン数がほぼ同一（約 22k/6.4k）で、毎日フル 50 件採点が走っていることが判明。
+
+**原因**:
+- `collector.upsert_dynamodb()` が `table.put_item()` で項目を**完全置換**していた
+- 既存レコードに付いている `score` / `score_padded` / `score_reason` / `summary_ja` / `delivered_at` が、翌日の再収集時に新しい item dict（これらの属性を含まない）で上書きされて消える
+- `scorer.fetch_unscored_papers()` は `collected_date = 今日 AND attribute_not_exists(score)` でフィルタしている → 上書き直後は全件「未採点」扱いになり、HF Trending 等で複数日にまたがって露出する論文も毎日採点し直されていた
+
+**修正方針（PR #5、案A: update_item 切替）**:
+- 既存レコードがあれば `table.update_item()` で可変メタデータ（title, authors, abstract, published_at, collected_at, collected_date, upvotes, ttl）のみ更新
+- `source` は `ADD #src :s` で集合マージ（put_item 全置換ではなく値を増やすだけ）
+- `score` 系の属性は **UpdateExpression に含めない** → DynamoDB は既存値を保持する
+- 新規レコードは従来通り `put_item` で作成（score 系は最初から存在しない）
+
+**コスト影響（想定）**:
+- 仮に日次の真の新規論文が 30%（50件中15件）と仮定すると、Bedrock 採点対象が 50 → 15 件に削減
+- 月コスト見込み: 約 250 円 → 約 75 円（年 3,050 円 → 約 900 円）
+- 絶対額は小さいが、Phase 4 で abstract 拡大・配信本数増加した場合に効く
+
+**学んだこと**:
+- `put_item` は**項目を完全置換**する操作。「一部の属性だけ更新したい」ときは `update_item` を使う
+- DynamoDB の StringSet 型は `update_item` の `ADD` 演算子で要素を追加できる（set union）。`put_item` で書き直す必要はない
+- ステップ間で属性が増えていくスキーマ（収集 → 採点 → 配信 でフィールドが追加されるパターン）は、後段で追加された属性が前段の再実行で消えないかを必ず検証する
+- 「DynamoDB Read コストを節約しよう」と get_item を省略して put_item 一発で済ませる設計は危険。本件では既に get_item で existing を読んでいたのに、なぜか put_item で全上書きしていたのが盲点だった
+
+**検証**:
+- `tests/test_collector.py::test_upsert_dynamodb_preserves_score_fields` で score/summary/delivered 系の保持を検証
+- `tests/test_collector.py::test_upsert_dynamodb_updates_mutable_fields` で可変属性が新値で更新されることを検証
+
+---
+
+### 4.3 連日同一配信問題と未配信フィルタの追加（2026-05-11）
+
+§4.2 の修正（既存論文 score 保持）だけだと別の問題が浮上することがレビュー中に判明。
+
+**問題**:
+- collector が既存レコードの `collected_date` を毎日「今日」に上書きしている
+- `notifier.fetch_top_n` は GSI を `collected_date = 今日` で引き、score 降順で Top N を取る
+- しかも `delivered_at` での除外をしていなかった
+- 結果: 昨日 score=92 で配信された論文が、翌日もそのまま Top 3 に登場 → **連日まったく同じ Slack 投稿になる**
+- §4.2 修正前は毎日全件再採点していたので、Claude Haiku の非決定性で偶然順位が入れ替わっていたが、§4.2 で score を保持するようになると「偶然の救済」が消えてこの問題が顕在化する
+
+**修正方針（PR #5 内に追加コミット、案 E: 未配信フィルタ）**:
+- `notifier.fetch_top_n` の GSI Query に `FilterExpression=Attr("delivered_at").not_exists()` を追加
+- `Limit=n` を GSI Query 段階では指定しない（FilterExpression と組み合わせると Limit 適用後にフィルタされて N 未満になりがちなため）
+- 全件 Query → Python 側で `[:n]` にスライス（1 日の収集上限が 50 件程度なので全件読みでも問題なし）
+
+**採用しなかった選択肢**:
+- 案 D（`collected_date` を初収集日のまま保持）: 「昨日トレンド入りしたが配信されなかった論文を今日再評価する」経路を失う
+- 案 F（N 日の冷却期間付き再配信）: ロジックが複雑、てつてつの「一度配信したら次は外す」というシンプル方針と合わない
+
+**学んだこと**:
+- DynamoDB の Query で `FilterExpression` と `Limit` を併用する場合、`Limit` は **「フィルタ前の件数」** に適用される（フィルタ後ではない）。N 件確実に欲しいなら、Limit を広めに取るか Limit を外して Python 側で絞る
+- 「日次配信」コンセプトのアプリでは、配信済みフラグでの除外は **GSI Query の段階で**やるべき。後段で気付くと修正コストが上がる
+- バグ修正の副作用：1 つのバグを直すと、それまで偶然マスクされていた別のバグが顕在化することがある（put_item 全置換 → 全件再採点 → 非決定性で順位入れ替わり、という偶然の連鎖が壊れる）
+
+**検証**:
+- `tests/test_notifier.py::test_fetch_top_n_excludes_already_delivered` で配信済みが除外されることを検証
+- `tests/test_notifier.py::test_fetch_top_n_returns_less_than_n_when_few_unscored_remaining` で n 未満でもエラーにならないことを検証
+
+---
+
 ---
 
 ## 8. Anthropic Claude を Bedrock 経由へ移行（2026-05-06）
@@ -245,3 +308,6 @@ SecureString パラメータは CloudFormation/CDK で**作成できない**（A
 | Bedrock model access 有効化と IAM の二段階制御 | 2026-05-06 | Bedrock は IAM の `bedrock:InvokeModel` だけでは呼べない。AWS Console の「Model access」で各 Anthropic モデルを Enable する手動操作が別途必要。IAM = 誰が呼べるか、model access = そもそも呼べるか、の二段構え |
 | Bedrock 移行による認証モデルの本質変化 | 2026-05-10 | Direct API は API キーをコードと SSM の両方で守護していたが、Bedrock 経由は Lambda 実行ロールの IAM 権限のみで完結する。長期存在する機密シークレット自体をシステムから消せるのが価値（PR #3 作成直前テストで確認）|
 | Global CRIS の 3-Statement IAM 設計 | 2026-05-10 | Statement ① ソース inference profile（自リージョン限定）、② 自リージョンの foundation-model（ローカル処理経路）、③ ARN リージョン部空 + `aws:RequestedRegion=unspecified` の foundation-model（他リージョンへルーティングされた経路）。③ がないと CRIS が他リージョンにルーティングしたとき AccessDeniedException で失敗する（PR #3 作成直前テストで確認）|
+| DynamoDB put_item vs update_item の本質的違い | 2026-05-11 | put_item は項目を完全置換（含めない属性は消える）、update_item は UpdateExpression に書いた属性だけ触る。スキーマが増育する設計（収集→採点→配信でフィールド追加）では put_item で全上書きすると後段で追加された属性が消えるので update_item を使うべき（PR #5 作成直前テストで確認）|
+| バグ修正の選択軸：最小修正範囲と伝播リスク | 2026-05-11 | 修正案を複数比較するとき、Bedrock 呼び出し数や read コストではなく「他モジュールへの伝播リスク」と「修正の局所性」を優先する。collector の修正だけで scorer/notifier の I/F を変えない案を採用することで、テスト・レビュー・回帰リスクを最小化（PR #5 作成直前テストで確認）|
+| ステップ拡張スキーマの再実行安全性 | 2026-05-11 | 1レコードに対して複数のパイプラインステップが属性を追加していくスキーマ（収集→採点→配信）では、前段の再実行で後段属性が消えないかを必ずテストする。本件は「翌日の collector が score を上書き」が長期間気付かれなかった典型例（PR #5 作成直前テストで確認）|
