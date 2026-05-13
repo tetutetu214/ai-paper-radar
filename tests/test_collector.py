@@ -140,6 +140,54 @@ def test_merge_paper_combines_sources() -> None:
     assert merged.upvotes == 10
 
 
+# --- upvotes 降順ソートと件数上限カット ---
+
+
+def _make_paper(paper_id: str, upvotes: int) -> Paper:
+    return Paper(
+        paper_id=paper_id,
+        title=f"Paper {paper_id}",
+        authors=[],
+        abstract="",
+        published_at="",
+        sources={"hf_daily"},
+        upvotes=upvotes,
+    )
+
+
+def test_select_top_papers_sorts_by_upvotes_desc() -> None:
+    """upvotes 降順、同点は paper_id 昇順で並ぶこと。"""
+    papers = [
+        _make_paper("2401.00003", 10),
+        _make_paper("2401.00001", 50),
+        _make_paper("2401.00002", 10),
+        _make_paper("2401.00004", 30),
+    ]
+    sorted_papers = collector._select_top_papers(papers, limit=None)
+    paper_ids = [p.paper_id for p in sorted_papers]
+    # upvotes 50, 30, 10(2401.00002), 10(2401.00003) の順
+    assert paper_ids == ["2401.00001", "2401.00004", "2401.00002", "2401.00003"]
+
+
+def test_select_top_papers_respects_limit() -> None:
+    """limit が指定されていれば先頭 limit 件に絞る。"""
+    papers = [
+        _make_paper("p1", 10),
+        _make_paper("p2", 50),
+        _make_paper("p3", 30),
+        _make_paper("p4", 5),
+    ]
+    result = collector._select_top_papers(papers, limit=2)
+    assert [p.paper_id for p in result] == ["p2", "p3"]
+
+
+def test_select_top_papers_with_limit_larger_than_papers_returns_all() -> None:
+    """limit が件数より大きい場合は全件返す（パディングしない）。"""
+    papers = [_make_paper("p1", 10), _make_paper("p2", 5)]
+    result = collector._select_top_papers(papers, limit=10)
+    assert len(result) == 2
+
+
 # --- DynamoDB upsert ---
 
 

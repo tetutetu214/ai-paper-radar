@@ -3,6 +3,7 @@
 `aws_cdk.assertions.Template` で生成された CloudFormation の主要属性を検証する。
 詳細仕様は docs/spec.md §7 を参照。
 """
+
 from __future__ import annotations
 
 import aws_cdk as cdk
@@ -46,8 +47,14 @@ def test_dynamodb_gsi_created() -> None:
                             {
                                 "IndexName": "gsi_collected_date_score",
                                 "KeySchema": [
-                                    {"AttributeName": "collected_date", "KeyType": "HASH"},
-                                    {"AttributeName": "score_padded", "KeyType": "RANGE"},
+                                    {
+                                        "AttributeName": "collected_date",
+                                        "KeyType": "HASH",
+                                    },
+                                    {
+                                        "AttributeName": "score_padded",
+                                        "KeyType": "RANGE",
+                                    },
                                 ],
                             }
                         )
@@ -71,6 +78,8 @@ def test_lambda_function_created() -> None:
                 "MemorySize": 1024,
                 "Timeout": 300,
                 "Handler": "lambda_function.handler",
+                # 二重起動防止のため同時実行は 1 に固定
+                "ReservedConcurrentExecutions": 1,
             }
         ),
     )

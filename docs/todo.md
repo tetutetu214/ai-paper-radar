@@ -1,6 +1,6 @@
 # AI Paper Radar — タスク管理
 
-> 最終更新: 2026-05-11
+> 最終更新: 2026-05-12
 
 ---
 
@@ -55,7 +55,11 @@
 - [x] 既存論文の毎日再採点バグを発見（2026-05-11、CloudWatch 確認で 5/10 と 5/11 のトークン数がほぼ同一 22k/6.4k と判明 → put_item の全項目置換が原因）
 - [x] PR #5 `feature/skip-rescore-existing-papers` 作成（collector を update_item 切替、score 系属性を保持、テスト 32 件全パス）
 - [x] 連日同一配信問題の発見と修正（2026-05-11、てつてつ指摘 → fetch_top_n に未配信フィルタを追加、テスト 34 件全パス、PR #5 に追加コミット）
-- [ ] PR #5 のマージと cdk deploy（コード変更のみ、IAM 差分なしの想定）
+- [x] PR #5 を main に merge マージ（2026-05-12、sha ad2ac51）
+- [x] cdk deploy 実行（2026-05-12、Lambda Function のみ UPDATE_COMPLETE、38.67 秒）
+- [x] PR #5 デプロイ後の手動 invoke で 11 倍コスト事故（2026-05-12、CLI timeout → 自動リトライで 3 重実行、Bedrock 72 回呼び出し、$0.613 ≒ 95 円）
+- [x] PR #6 `feature/concurrency-guard-and-paper-limit` 作成（ReservedConcurrentExecutions=1 + MAX_PAPERS_PER_DAY 実装、テスト 37 件全パス）
+- [ ] PR #6 のマージと cdk deploy（同時実行ガード + 件数上限カット、IAM 差分なしの想定）
 - [ ] 1 週間の試験運用、配信品質チェック（2026-05-11 朝 JST 6:00 から自動配信開始）
 - [ ] 本番デプロイ（必要なら別スタック名・別リージョン構成）
 

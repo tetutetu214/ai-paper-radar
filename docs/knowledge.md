@@ -1,6 +1,6 @@
 # AI Paper Radar — 知見・決定事項の記録
 
-> 最終更新: 2026-05-11
+> 最終更新: 2026-05-12
 
 このファイルは、プロジェクトの設計判断・調査結果・ハマったポイントを蓄積する。セッションをまたいで参照される最重要ドキュメント。
 
@@ -225,6 +225,50 @@ Phase 3 自動配信開始日（2026-05-11）に、Bedrock のトークン使用
 **検証**:
 - `tests/test_notifier.py::test_fetch_top_n_excludes_already_delivered` で配信済みが除外されることを検証
 - `tests/test_notifier.py::test_fetch_top_n_returns_less_than_n_when_few_unscored_remaining` で n 未満でもエラーにならないことを検証
+
+---
+
+### 4.4 PR #5 デプロイ後の手動 invoke で 11 倍コスト事故（2026-05-12）
+
+PR #5 のデプロイ後、修正効果を確認するため `aws lambda invoke` を実行したところ、**3 重実行**が発生して Bedrock コストが普段の 11 倍（$0.054 → $0.613 ≒ 約 95 円）になった。
+
+**事故の連鎖**:
+1. `aws lambda invoke` を `--cli-read-timeout 0` を付けずに実行
+2. Lambda 実行時間が 4-5 分（240 件 collected が判明、後述）で AWS CLI のデフォルト read timeout 60 秒を超過
+3. AWS CLI が自動リトライ（デフォルト 3 回まで）→ 1 分間隔で 3 つの Lambda 実行が並走
+4. Lambda に `ReservedConcurrentExecutions` 制限がなかったので、3 つとも実行された
+5. Bedrock 呼び出し: 通常 8 回 → **72 回**（3 実行 × 24 回）
+
+**「Collected 240 papers」の真因**:
+- spec.md §4.2 に「MAX_PAPERS_PER_DAY=50」と書かれていたが、`settings.py` で読み込むだけで **collector で実際に使われていなかった**
+- HF Daily Papers + arXiv + HF Trending の合計 240 件がそのまま全件採点対象になっていた
+- 通常日の「Collected 50 papers」は偶然そのくらいの件数だったか、HF/arXiv の返却数が日によって変動していた
+
+**修正方針（PR #6）**:
+1. **同時実行ガード**: CDK Stack の Lambda Function に `reserved_concurrent_executions=1` を追加
+2. **MAX_PAPERS_PER_DAY の実装**: collector に `_select_top_papers(limit)` を追加し、upvotes 降順でソート → 先頭 `limit` 件に絞る。lambda_function.py で `collector.fetch_all(limit=settings.max_papers_per_day)` として呼ぶ
+3. upvotes 降順を選んだ理由: HF Daily/Trending は upvotes が付き、arXiv 新着は 0。これで「コミュニティが注目している論文」が自動的に優先される
+
+**運用ルール（手動 invoke のコマンド）**:
+- `aws lambda invoke --cli-read-timeout 0 --cli-connect-timeout 0 --invocation-type RequestResponse ...` で同期実行
+- もしくは `--invocation-type Event` で非同期（fire-and-forget）にして、CloudWatch Logs で結果確認
+
+**学んだこと**:
+- AWS CLI のデフォルト read timeout は 60 秒。長時間 Lambda を sync invoke するときは `--cli-read-timeout 0` 必須
+- AWS CLI は失敗時に自動リトライする（デフォルト 3 回）。冪等性のない処理を sync invoke する場合、これが二重起動の温床になる
+- Lambda の `ReservedConcurrentExecutions=1` は「最大 1 つだけ動く」物理保証。Scheduler の重複起動・CLI のリトライ・手動 invoke の重なりを **物理的に止められる**ので、冪等性が完全でない処理では設定するのが安全寄り
+- spec に書いた設定値が**実装で使われているか**は別途検証が必要。「環境変数を読む」と「実際に処理に効かせる」は別
+
+**コスト影響**:
+- 今回の事故損: 約 87 円（11 倍ブレ、絶対額は小さい）
+- PR #6 後の通常日コスト: 50 件採点に戻る → 月 75 円見込み（PR #5 修正後の試算と一致）
+
+**検証**:
+- `tests/test_collector.py::test_select_top_papers_sorts_by_upvotes_desc` で upvotes 降順ソートを検証
+- `tests/test_collector.py::test_select_top_papers_respects_limit` で件数上限カットを検証
+- `tests/test_collector.py::test_select_top_papers_with_limit_larger_than_papers_returns_all` で境界条件を検証
+- `tests/test_lambda_function.py::test_handler_runs_full_pipeline` で `fetch_all(limit=50)` が渡されることを検証
+- `tests/test_cdk_snapshot.py::test_lambda_function_created` で `ReservedConcurrentExecutions=1` を検証
 
 ---
 
