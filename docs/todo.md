@@ -59,7 +59,9 @@
 - [x] cdk deploy 実行（2026-05-12、Lambda Function のみ UPDATE_COMPLETE、38.67 秒）
 - [x] PR #5 デプロイ後の手動 invoke で 11 倍コスト事故（2026-05-12、CLI timeout → 自動リトライで 3 重実行、Bedrock 72 回呼び出し、$0.613 ≒ 95 円）
 - [x] PR #6 `feature/concurrency-guard-and-paper-limit` 作成（ReservedConcurrentExecutions=1 + MAX_PAPERS_PER_DAY 実装、テスト 37 件全パス）
-- [ ] PR #6 のマージと cdk deploy（同時実行ガード + 件数上限カット、IAM 差分なしの想定）
+- [x] PR #6 を main に merge マージ（2026-05-13、sha 43905b6）
+- [x] PR #6 の cdk deploy 実行（2026-05-13 24:04 JST、Lambda Function のみ UPDATE_COMPLETE、37 秒、Code 更新 + ReservedConcurrentExecutions=1 追加）
+- [ ] 2026-05-14 朝 6:00 自動配信で Bedrock 呼び出し 8 回・Collected 50 件に戻ることを確認
 - [ ] 1 週間の試験運用、配信品質チェック（2026-05-11 朝 JST 6:00 から自動配信開始）
 - [ ] 本番デプロイ（必要なら別スタック名・別リージョン構成）
 
