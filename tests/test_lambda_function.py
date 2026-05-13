@@ -1,4 +1,5 @@
 """lambda_function ハンドラの統合テスト。"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -58,9 +59,7 @@ def _create_test_table() -> Any:
 
 
 @mock_aws
-def test_handler_runs_full_pipeline(
-    aws_env: None, settings_mock: MagicMock
-) -> None:
+def test_handler_runs_full_pipeline(aws_env: None, settings_mock: MagicMock) -> None:
     """3 ステップが順に実行され、統計情報が返ること。"""
     _create_test_table()
 
@@ -78,7 +77,9 @@ def test_handler_runs_full_pipeline(
     with (
         patch("lambda_function.get_settings", return_value=settings_mock),
         patch("lambda_function.AnthropicBedrock"),
-        patch("lambda_function.collector.fetch_all", return_value=sample_papers),
+        patch(
+            "lambda_function.collector.fetch_all", return_value=sample_papers
+        ) as mock_fetch_all,
         patch(
             "lambda_function.scorer.score_papers",
             return_value=[{"paper_id": "p1", "score": 87, "reason": "good"}],
@@ -107,6 +108,8 @@ def test_handler_runs_full_pipeline(
     assert result["delivered"] == 1
     assert result["errors"] == []
     mock_slack.assert_called_once()
+    # collector.fetch_all は settings.max_papers_per_day を limit に渡して呼ばれる
+    mock_fetch_all.assert_called_once_with(limit=50)
 
 
 @mock_aws

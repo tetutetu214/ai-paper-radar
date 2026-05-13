@@ -1,4 +1,5 @@
 """AI Paper Radar スタック定義。詳細仕様は docs/spec.md §7 を参照。"""
+
 from __future__ import annotations
 
 from aws_cdk import (
@@ -73,6 +74,10 @@ class AiPaperRadarStack(Stack):
             ),
             memory_size=1024,
             timeout=Duration.minutes(5),
+            # 同時実行を 1 に固定。EventBridge Scheduler の重複起動や、
+            # 手動 invoke の CLI 自動リトライによる二重起動を物理的に防ぐ
+            # （2026-05-12 の事故再発防止、knowledge.md §4.4 参照）。
+            reserved_concurrent_executions=1,
             log_retention=logs.RetentionDays.ONE_MONTH,
             environment={
                 "DYNAMODB_TABLE_NAME": self.papers_table.table_name,
@@ -107,9 +112,7 @@ class AiPaperRadarStack(Stack):
         self.pipeline_fn.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["kms:Decrypt"],
-                resources=[
-                    f"arn:aws:kms:{self.region}:{self.account}:alias/aws/ssm"
-                ],
+                resources=[f"arn:aws:kms:{self.region}:{self.account}:alias/aws/ssm"],
             )
         )
 
@@ -162,9 +165,7 @@ class AiPaperRadarStack(Stack):
             iam.PolicyStatement(
                 sid="GrantGlobalCrisInferenceProfileGlobalModelAccess",
                 actions=["bedrock:InvokeModel"],
-                resources=[
-                    f"arn:aws:bedrock:::foundation-model/{bedrock_model_id}"
-                ],
+                resources=[f"arn:aws:bedrock:::foundation-model/{bedrock_model_id}"],
                 conditions={
                     "StringEquals": {
                         "aws:RequestedRegion": "unspecified",

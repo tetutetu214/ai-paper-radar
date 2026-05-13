@@ -4,6 +4,7 @@ EventBridge Scheduler から毎日 JST 6:00 に起動され、HF Daily Papers �
 から論文を収集してスコアリング、上位 N 本を Slack へ配信する。
 詳細フローは docs/spec.md §4.5 を参照。
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,7 +41,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     # Step 1: 収集
     collected = 0
     try:
-        papers = collector.fetch_all()
+        papers = collector.fetch_all(limit=settings.max_papers_per_day)
         collected = collector.upsert_dynamodb(table, papers)
         logger.info("Collected %d papers", collected)
     except Exception as e:

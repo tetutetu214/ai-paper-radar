@@ -43,8 +43,13 @@ class Paper:
     upvotes: int = 0
 
 
-def fetch_all() -> list[Paper]:
+def fetch_all(limit: int | None = None) -> list[Paper]:
     """全データソースから論文を取得し、重複排除して返す。
+
+    upvotes 降順で並べ、limit が指定されていれば先頭 limit 件に絞る。
+    HF Daily Papers と HF Trending は upvotes が付くため自然に優先され、
+    arXiv の新着（upvotes=0）は後段になる。これにより MAX_PAPERS_PER_DAY
+    で上限カットしても「コミュニティが注目している論文」を取りこぼさない。
 
     1 ソースが失敗しても他で継続する設計。全失敗の場合は空リスト。
     """
@@ -63,7 +68,18 @@ def fetch_all() -> list[Paper]:
                 "%s fetch failed; continuing with other sources", source_name
             )
 
-    return list(papers_by_id.values())
+    return _select_top_papers(list(papers_by_id.values()), limit)
+
+
+def _select_top_papers(papers: list[Paper], limit: int | None) -> list[Paper]:
+    """upvotes 降順で並べ、limit が指定されていれば先頭 limit 件に絞る。
+
+    同点は paper_id 昇順で安定化させ、テスト再現性を確保する。
+    """
+    sorted_papers = sorted(papers, key=lambda p: (-p.upvotes, p.paper_id))
+    if limit is not None and len(sorted_papers) > limit:
+        return sorted_papers[:limit]
+    return sorted_papers
 
 
 def _merge_paper(papers_by_id: dict[str, Paper], paper: Paper) -> None:
