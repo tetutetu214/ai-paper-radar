@@ -13,20 +13,32 @@ from moto import mock_aws
 from core import notifier
 
 
-def _mock_anthropic_response(input_dict: dict[str, Any]) -> MagicMock:
-    block = MagicMock()
-    block.type = "tool_use"
-    block.input = input_dict
-    response = MagicMock()
-    response.content = [block]
-    return response
+def _mock_converse_response(input_dict: dict[str, Any]) -> dict[str, Any]:
+    """Bedrock Converse API レスポンスを擬似生成。toolUse ブロック 1 個。"""
+    return {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "tu_test",
+                            "name": "submit_summary",
+                            "input": input_dict,
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "tool_use",
+    }
 
 
 def test_summarize_papers_enriches_with_japanese_fields() -> None:
-    """Anthropic 要約結果を title_ja / summary_ja に詰める。"""
+    """Bedrock Converse の要約結果を title_ja / summary_ja に詰める。"""
     papers = [{"paper_id": "p1", "title": "Original Title", "abstract": "Long text"}]
     client = MagicMock()
-    client.messages.create.return_value = _mock_anthropic_response(
+    client.converse.return_value = _mock_converse_response(
         {"title_ja": "原文タイトル", "summary_ja": ["要点1", "要点2", "要点3"]}
     )
     enriched = notifier.summarize_papers(client, papers)

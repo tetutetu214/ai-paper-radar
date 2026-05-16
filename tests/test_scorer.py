@@ -11,24 +11,35 @@ from moto import mock_aws
 from core import scorer
 
 
-def _mock_anthropic_response(results: list[dict[str, Any]]) -> MagicMock:
-    """Anthropic レスポンスを擬似生成。tool_use ブロック 1 個。"""
-    block = MagicMock()
-    block.type = "tool_use"
-    block.input = {"results": results}
-    response = MagicMock()
-    response.content = [block]
-    return response
+def _mock_converse_response(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Bedrock Converse API レスポンスを擬似生成。toolUse ブロック 1 個。"""
+    return {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "tu_test",
+                            "name": "submit_scores",
+                            "input": {"results": results},
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "tool_use",
+    }
 
 
-def _make_anthropic_client(results: list[dict[str, Any]]) -> MagicMock:
+def _make_bedrock_client(results: list[dict[str, Any]]) -> MagicMock:
     client = MagicMock()
-    client.messages.create.return_value = _mock_anthropic_response(results)
+    client.converse.return_value = _mock_converse_response(results)
     return client
 
 
 def test_score_papers_returns_results() -> None:
-    """論文を Anthropic に渡してスコアを取得できる。"""
+    """論文を Bedrock Converse に渡してスコアを取得できる。"""
     papers = [
         {"paper_id": "2401.00001", "title": "T1", "abstract": "A1"},
         {"paper_id": "2401.00002", "title": "T2", "abstract": "A2"},
@@ -37,11 +48,12 @@ def test_score_papers_returns_results() -> None:
         {"paper_id": "2401.00001", "score": 87, "reason": "関連性高い"},
         {"paper_id": "2401.00002", "score": 45, "reason": "やや関連"},
     ]
-    client = _make_anthropic_client(expected)
+    client = _make_bedrock_client(expected)
     results = scorer.score_papers(client, papers, "テスト興味")
     assert results == expected
-    call_kwargs = client.messages.create.call_args.kwargs
-    assert call_kwargs["tool_choice"]["name"] == "submit_scores"
+    call_kwargs = client.converse.call_args.kwargs
+    assert call_kwargs["toolConfig"]["toolChoice"]["tool"]["name"] == "submit_scores"
+    assert call_kwargs["modelId"] == "apac.amazon.nova-pro-v1:0"
 
 
 def test_score_papers_batches_at_10(monkeypatch: pytest.MonkeyPatch) -> None:

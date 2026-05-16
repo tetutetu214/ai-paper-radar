@@ -1,5 +1,4 @@
 boto3
-anthropic[bedrock]>=0.40.0
 requests
 feedparser
 tenacity

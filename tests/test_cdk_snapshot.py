@@ -159,12 +159,13 @@ def test_resource_counts() -> None:
 
 
 def test_lambda_role_has_bedrock_invoke_permission() -> None:
-    """Lambda 実行ロールに global cross-Region inference 公式 3-Statement の権限があること。
+    """Lambda 実行ロールに APAC CRIS 3-Statement の権限があること。
 
-    出典: https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html
+    APAC Cross-Region Inference Profile（apac.amazon.nova-pro-v1:0）で
+    最小権限を実装。ローカル/クロスリージョン両方の経路を許可する。
     """
     template = _make_template()
-    model_id = "anthropic.claude-haiku-4-5-20251001-v1:0"
+    model_id = "amazon.nova-pro-v1:0"
 
     # ① ソース inference profile への呼び出し（自リージョン限定）
     template.has_resource_properties(
@@ -177,7 +178,7 @@ def test_lambda_role_has_bedrock_invoke_permission() -> None:
                             [
                                 Match.object_like(
                                     {
-                                        "Sid": "GrantGlobalCrisInferenceProfileRegionAccess",
+                                        "Sid": "GrantApacCrisInferenceProfileRegionAccess",
                                         "Action": "bedrock:InvokeModel",
                                         "Effect": "Allow",
                                         "Condition": {
@@ -206,7 +207,7 @@ def test_lambda_role_has_bedrock_invoke_permission() -> None:
                             [
                                 Match.object_like(
                                     {
-                                        "Sid": "GrantGlobalCrisInferenceProfileInRegionModelAccess",
+                                        "Sid": "GrantApacCrisInferenceProfileInRegionModelAccess",
                                         "Action": "bedrock:InvokeModel",
                                         "Effect": "Allow",
                                         "Condition": {
@@ -226,7 +227,7 @@ def test_lambda_role_has_bedrock_invoke_permission() -> None:
         ),
     )
 
-    # ③ グローバル Foundation Model（他リージョン経路、ARN のリージョン部空 + RequestedRegion=unspecified）
+    # ③ APAC ルーティング先リージョンの Foundation Model（ap-* ワイルドカード）
     template.has_resource_properties(
         "AWS::IAM::Policy",
         Match.object_like(
@@ -237,14 +238,13 @@ def test_lambda_role_has_bedrock_invoke_permission() -> None:
                             [
                                 Match.object_like(
                                     {
-                                        "Sid": "GrantGlobalCrisInferenceProfileGlobalModelAccess",
+                                        "Sid": "GrantApacCrisInferenceProfileCrossRegionModelAccess",
                                         "Action": "bedrock:InvokeModel",
                                         "Effect": "Allow",
-                                        "Resource": f"arn:aws:bedrock:::foundation-model/{model_id}",
+                                        "Resource": f"arn:aws:bedrock:ap-*::foundation-model/{model_id}",
                                         "Condition": {
                                             "StringEquals": Match.object_like(
                                                 {
-                                                    "aws:RequestedRegion": "unspecified",
                                                     "bedrock:InferenceProfileArn": Match.any_value(),
                                                 }
                                             ),
