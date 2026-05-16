@@ -278,6 +278,15 @@ PR #5 のデプロイ後、修正効果を確認するため `aws lambda invoke`
 
 ## 9. Amazon Nova Pro へ全面切替（2026-05-16、コスト削減）
 
+**デプロイ結果サマリ（2026-05-16）**:
+- cdk deploy: 38.25 秒で UPDATE_COMPLETE。IAM::Policy と Lambda::Function のみ更新、他リソース不変
+- Lambda 初回 invoke: collected=50 / scored=30 / delivered=3 / errors=[]、所要 20.8 秒
+- 実行時間が Haiku 時代の 50.9 秒から 20.8 秒に半減（Nova Pro の応答が速い + scored=30 件で少なめだった効果）
+- Slack に「Powered by Amazon Nova Pro」フッターで配信成功
+- Bedrock 呼び出しコスト試算: 約 $0.033（scorer 3 batch + notifier 3 件）
+
+
+
 Claude Haiku 4.5 から Amazon Nova Pro へモデル切替。スコアリング・要約とも `apac.amazon.nova-pro-v1:0`。
 
 **判断根拠（コスト最優先）**:
@@ -399,6 +408,9 @@ SecureString パラメータは CloudFormation/CDK で**作成できない**（A
 | 外部 API リトライ戦略（tenacity）| 2026-05-06 | デコレータでリトライ回数・指数バックオフ・jitter・対象例外を宣言的に書ける。`@retry(wait=wait_exponential_jitter(initial=1, max=60), stop=stop_after_attempt(3), retry=retry_if_exception_type(...))` のような定型 |
 | CDK Stack のライフサイクルと CDK 管理外リソース | 2026-05-06 | `cdk destroy` で消えるのは Stack 内のリソース（CFn テンプレに含まれるもの）だけ。SecureString は CFn 非対応のため CDK では権限付与だけ行い、パラメータ実体は別管理。完全リセットには `cdk destroy` の後に `aws ssm delete-parameter` が必要 |
 | Bedrock Cross-Region Inference Profile の本質 | 2026-05-06 | `global.` / `jp.` などのプロファイル ID は単独のモデル参照ではなく、複数の宛先リージョンに分散ルーティングするロードバランサ。IAM では「ソース inference profile ARN」と「宛先 foundation-model ARN（リージョン *）」の両方を `bedrock:InvokeModel` で許可する必要がある（片方だけでは失敗）|
+| cdk deploy の差分理解（Lambda Code + IAM Policy のみ更新） | 2026-05-16 | cdk diff で `[~]` がついたリソースだけが更新対象。本件では Lambda Function の Code S3Key と IAM Policy の Bedrock 3-Statement だけ。DynamoDB/Scheduler/Role 本体は無関係なので、論文データや配信スケジュールに影響なし。差分の `[+]/[-]/[~]` を読み解けるかが「本番反映前のリスク評価」の核 |
+| Bedrock 課金の単位（トークン従量） | 2026-05-16 | Inference Profile はロードバランサであって課金資源ではない。請求は Foundation Model の input/output トークン量のみ。Nova Pro は $0.80/1M input、$3.20/1M output。プロファイル維持費なし、リージョン跨ぎの転送費もなし |
+| cdk deploy のロールバック手順 | 2026-05-16 | CDK スタックは「コードからスタックを宣言する」モデルなので、戻したいバージョンの code を `git checkout` してから `cdk deploy` を再実行すれば前状態に巻き戻る。CloudFormation の `RollbackStack` ではなく、git の前バージョン + cdk deploy が王道。DynamoDB データは保持される |
 | Bedrock model access 有効化と IAM の二段階制御 | 2026-05-06 | Bedrock は IAM の `bedrock:InvokeModel` だけでは呼べない。AWS Console の「Model access」で各 Anthropic モデルを Enable する手動操作が別途必要。IAM = 誰が呼べるか、model access = そもそも呼べるか、の二段構え |
 | Bedrock 移行による認証モデルの本質変化 | 2026-05-10 | Direct API は API キーをコードと SSM の両方で守護していたが、Bedrock 経由は Lambda 実行ロールの IAM 権限のみで完結する。長期存在する機密シークレット自体をシステムから消せるのが価値（PR #3 作成直前テストで確認）|
 | Global CRIS の 3-Statement IAM 設計 | 2026-05-10 | Statement ① ソース inference profile（自リージョン限定）、② 自リージョンの foundation-model（ローカル処理経路）、③ ARN リージョン部空 + `aws:RequestedRegion=unspecified` の foundation-model（他リージョンへルーティングされた経路）。③ がないと CRIS が他リージョンにルーティングしたとき AccessDeniedException で失敗する（PR #3 作成直前テストで確認）|

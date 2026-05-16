@@ -75,9 +75,9 @@
 - [x] `pyproject.toml` から `anthropic` 依存削除、`requirements.txt` も更新、`uv.lock` 再生成
 - [x] テスト書き換え（scorer/notifier/lambda_function/cdk_snapshot、37 件全パス）
 - [x] ドキュメント更新（README/CLAUDE.md/plan.md/spec.md/knowledge.md §9）
-- [ ] cdk diff でデプロイ前確認
-- [ ] cdk deploy で本番反映
-- [ ] Lambda 手動 invoke で初回動作確認（Slack 配信が「Powered by Amazon Nova Pro」フッターで届く）
+- [x] cdk diff でデプロイ前確認（IAM Policy 3-Statement と Lambda Code S3Key の差分のみ、他リソース不変、2026-05-16）
+- [x] cdk deploy で本番反映（38.25 秒で UPDATE_COMPLETE、2026-05-16 23:18 JST）
+- [x] Lambda 手動 invoke で初回動作確認（collected=50/scored=30/delivered=3、20.8 秒、Haiku 時代の 50.9 秒から半減、errors=[]、Slack 配信成功、2026-05-16）
 - [ ] 翌朝 JST 6:00 の自動配信ログを CloudWatch で確認
 - [ ] PR 作成・マージ
 
