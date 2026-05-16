@@ -116,8 +116,10 @@ HF公式ブログには「upvoteで論文を **highlight** する」と書かれ
 ### 3.2 なぜ Slack のみで MVP（Notionなしで開始）
 Notionは「論文を貯めて再読する」用途で価値があるが、DynamoDBに全メタデータを蓄積する設計のため、後から Notion連携や検索UI を追加可能。MVPはシンプル優先。
 
-### 3.3 なぜ Haiku でスコアリング、Sonnet で要約か
-スコアリングは50本/日のバッチ処理で安価さが重要 → Haiku 4.5。要約は3本/日で品質が重要 → Sonnet 4.6。コストは月 $3-6 に収まる試算。
+### 3.3 なぜ Haiku でスコアリング、Sonnet で要約か（**廃止: §9 参照**）
+~~スコアリングは50本/日のバッチ処理で安価さが重要 → Haiku 4.5。要約は3本/日で品質が重要 → Sonnet 4.6。コストは月 $3-6 に収まる試算。~~
+
+→ 2026-05-16 に Amazon Nova Pro へ全面切替（§9 参照）。スコアリング・要約ともに同一モデル（Nova Pro）を使用する単純構成に変更。判断軸はコスト最優先。
 
 ### 3.4 リージョン選択
 ap-northeast-1（東京）。既存の他プロジェクト（chicken-knowledge-rag 等）と統一して運用負荷を下げる。Anthropic API と Slack Webhook はAWS外部サービスのためリージョン依存しない。Bedrock等の先行リリースは東京リージョンでも数ヶ月遅れで利用可能になるので個人用途では問題ない。
@@ -274,6 +276,63 @@ PR #5 のデプロイ後、修正効果を確認するため `aws lambda invoke`
 
 ---
 
+## 9. Amazon Nova Pro へ全面切替（2026-05-16、コスト削減）
+
+**デプロイ結果サマリ（2026-05-16）**:
+- cdk deploy: 38.25 秒で UPDATE_COMPLETE。IAM::Policy と Lambda::Function のみ更新、他リソース不変
+- Lambda 初回 invoke: collected=50 / scored=30 / delivered=3 / errors=[]、所要 20.8 秒
+- 実行時間が Haiku 時代の 50.9 秒から 20.8 秒に半減（Nova Pro の応答が速い + scored=30 件で少なめだった効果）
+- Slack に「Powered by Amazon Nova Pro」フッターで配信成功
+- Bedrock 呼び出しコスト試算: 約 $0.033（scorer 3 batch + notifier 3 件）
+
+
+
+Claude Haiku 4.5 から Amazon Nova Pro へモデル切替。スコアリング・要約とも `apac.amazon.nova-pro-v1:0`。
+
+**判断根拠（コスト最優先）**:
+- Claude Haiku 4.5: input $1.00/1M, output $5.00/1M
+- Amazon Nova Pro: input $0.80/1M, output $3.20/1M（Haiku の約 1/1.5）
+- てつてつ判断: 「コスト理由なので、いかなる品質議論も関係ない」
+- chicken-knowledge-rag・trip-road が既に Nova Pro 採用済みで、運用知見を流用できる
+
+**実装上の影響（重要）**:
+- Anthropic SDK（`AnthropicBedrock`）は **Nova モデルを呼べない**。Nova は Anthropic 製ではないため
+- 全面的に **boto3 の `bedrock-runtime.converse()` API** に書き換え
+- Tool use の構造が違う:
+  - Anthropic: `tools=[{name, description, input_schema}]`, `tool_choice={type, name}`
+  - Converse: `toolConfig={tools: [{toolSpec: {name, description, inputSchema: {json: ...}}}], toolChoice: {tool: {name}}}`
+- レスポンスパースも違う:
+  - Anthropic: `response.content[i].type == "tool_use"` → `.input`
+  - Converse: `response["output"]["message"]["content"][i]["toolUse"]["input"]`
+- メッセージ構造も違う:
+  - Anthropic: `messages=[{role, content: str}]`, `system="..."`（文字列）
+  - Converse: `messages=[{role, content: [{text: "..."}]}]`, `system=[{text: "..."}]`（リスト）
+- max_tokens は `inferenceConfig.maxTokens` に移動
+
+**Inference Profile 選定**:
+- `apac.amazon.nova-pro-v1:0` を採用（東京・大阪・ソウル・ムンバイ・シンガポール・シドニーへ分散）
+- Anthropic 時代の `global.` 接頭辞は Nova では使えない。Nova は地域別 CRIS（`apac.` / `us.` / `eu.`）が標準
+
+**IAM 権限（APAC CRIS の最小権限 3-Statement）**:
+- ① `arn:aws:bedrock:ap-northeast-1:{account}:inference-profile/apac.amazon.nova-pro-v1:0` への InvokeModel（`aws:RequestedRegion=ap-northeast-1`）
+- ② 自リージョンの FM ARN `arn:aws:bedrock:ap-northeast-1::foundation-model/amazon.nova-pro-v1:0` への InvokeModel（同条件 + `bedrock:InferenceProfileArn` 一致）
+- ③ APAC 他リージョン FM ARN `arn:aws:bedrock:ap-*::foundation-model/amazon.nova-pro-v1:0` への InvokeModel（`bedrock:InferenceProfileArn` 一致のみ。クロスリージョン分散経路）
+
+**Bedrock model access**:
+- Amazon Nova Pro は **Amazon 自社モデル** のため AWS Console での利用申請は **不要**（Anthropic Claude と異なる）
+- IAM 権限を付与するだけで即時利用可能
+
+**廃止された依存**:
+- `anthropic` SDK は pyproject.toml と Lambda layer の requirements.txt から削除
+- これに伴い `uv.lock` も再生成
+
+**Slack フッター文言**:
+- 「Powered by Claude Haiku 4.5」→「Powered by Amazon Nova Pro」
+
+参考: https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference.html
+
+---
+
 ## 8. Anthropic Claude を Bedrock 経由へ移行（2026-05-06）
 
 Phase 3 デプロイ後、Anthropic Direct API 利用から **Amazon Bedrock 経由** へ切り替え。
@@ -349,6 +408,9 @@ SecureString パラメータは CloudFormation/CDK で**作成できない**（A
 | 外部 API リトライ戦略（tenacity）| 2026-05-06 | デコレータでリトライ回数・指数バックオフ・jitter・対象例外を宣言的に書ける。`@retry(wait=wait_exponential_jitter(initial=1, max=60), stop=stop_after_attempt(3), retry=retry_if_exception_type(...))` のような定型 |
 | CDK Stack のライフサイクルと CDK 管理外リソース | 2026-05-06 | `cdk destroy` で消えるのは Stack 内のリソース（CFn テンプレに含まれるもの）だけ。SecureString は CFn 非対応のため CDK では権限付与だけ行い、パラメータ実体は別管理。完全リセットには `cdk destroy` の後に `aws ssm delete-parameter` が必要 |
 | Bedrock Cross-Region Inference Profile の本質 | 2026-05-06 | `global.` / `jp.` などのプロファイル ID は単独のモデル参照ではなく、複数の宛先リージョンに分散ルーティングするロードバランサ。IAM では「ソース inference profile ARN」と「宛先 foundation-model ARN（リージョン *）」の両方を `bedrock:InvokeModel` で許可する必要がある（片方だけでは失敗）|
+| cdk deploy の差分理解（Lambda Code + IAM Policy のみ更新） | 2026-05-16 | cdk diff で `[~]` がついたリソースだけが更新対象。本件では Lambda Function の Code S3Key と IAM Policy の Bedrock 3-Statement だけ。DynamoDB/Scheduler/Role 本体は無関係なので、論文データや配信スケジュールに影響なし。差分の `[+]/[-]/[~]` を読み解けるかが「本番反映前のリスク評価」の核 |
+| Bedrock 課金の単位（トークン従量） | 2026-05-16 | Inference Profile はロードバランサであって課金資源ではない。請求は Foundation Model の input/output トークン量のみ。Nova Pro は $0.80/1M input、$3.20/1M output。プロファイル維持費なし、リージョン跨ぎの転送費もなし |
+| cdk deploy のロールバック手順 | 2026-05-16 | CDK スタックは「コードからスタックを宣言する」モデルなので、戻したいバージョンの code を `git checkout` してから `cdk deploy` を再実行すれば前状態に巻き戻る。CloudFormation の `RollbackStack` ではなく、git の前バージョン + cdk deploy が王道。DynamoDB データは保持される |
 | Bedrock model access 有効化と IAM の二段階制御 | 2026-05-06 | Bedrock は IAM の `bedrock:InvokeModel` だけでは呼べない。AWS Console の「Model access」で各 Anthropic モデルを Enable する手動操作が別途必要。IAM = 誰が呼べるか、model access = そもそも呼べるか、の二段構え |
 | Bedrock 移行による認証モデルの本質変化 | 2026-05-10 | Direct API は API キーをコードと SSM の両方で守護していたが、Bedrock 経由は Lambda 実行ロールの IAM 権限のみで完結する。長期存在する機密シークレット自体をシステムから消せるのが価値（PR #3 作成直前テストで確認）|
 | Global CRIS の 3-Statement IAM 設計 | 2026-05-10 | Statement ① ソース inference profile（自リージョン限定）、② 自リージョンの foundation-model（ローカル処理経路）、③ ARN リージョン部空 + `aws:RequestedRegion=unspecified` の foundation-model（他リージョンへルーティングされた経路）。③ がないと CRIS が他リージョンにルーティングしたとき AccessDeniedException で失敗する（PR #3 作成直前テストで確認）|

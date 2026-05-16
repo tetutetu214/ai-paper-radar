@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Any, Final
 
 import requests
-from anthropic import AnthropicBedrock
 from boto3.dynamodb.conditions import Attr, Key
 from tenacity import (
     retry,
@@ -19,8 +18,8 @@ from tenacity import (
 logger = logging.getLogger(__name__)
 
 
-# Bedrock Global Cross-Region Inference Profile（複数リージョンに自動分散）
-SUMMARIZER_MODEL: Final[str] = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+# Bedrock APAC Cross-Region Inference Profile（東京含む APAC 内リージョンに自動分散）
+SUMMARIZER_MODEL: Final[str] = "apac.amazon.nova-pro-v1:0"
 ABSTRACT_MAX_CHARS: Final[int] = 1500
 
 SUMMARY_SYSTEM_PROMPT: Final[str] = """\
@@ -33,22 +32,27 @@ SUMMARY_SYSTEM_PROMPT: Final[str] = """\
 submit_summary ツールを使って結果を返してください。
 """
 
+# Bedrock Converse API の toolSpec 形式
 SUMMARY_TOOL: Final[dict[str, Any]] = {
-    "name": "submit_summary",
-    "description": "論文要約を返す",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "title_ja": {"type": "string"},
-            "summary_ja": {
-                "type": "array",
-                "items": {"type": "string"},
-                "minItems": 3,
-                "maxItems": 3,
-            },
+    "toolSpec": {
+        "name": "submit_summary",
+        "description": "論文要約を返す",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "title_ja": {"type": "string"},
+                    "summary_ja": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                },
+                "required": ["title_ja", "summary_ja"],
+            }
         },
-        "required": ["title_ja", "summary_ja"],
-    },
+    }
 }
 
 
@@ -72,7 +76,7 @@ def fetch_top_n(table: Any, collected_date: str, n: int) -> list[dict[str, Any]]
 
 
 def summarize_papers(
-    client: AnthropicBedrock, papers: list[dict[str, Any]]
+    client: Any, papers: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """各論文を日本語要約し、title_ja / summary_ja を追加して返す。"""
     enriched: list[dict[str, Any]] = []
@@ -95,22 +99,26 @@ def summarize_papers(
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential_jitter(initial=2, max=20))
-def _summarize_one(client: AnthropicBedrock, paper: dict[str, Any]) -> dict[str, Any]:
+def _summarize_one(client: Any, paper: dict[str, Any]) -> dict[str, Any]:
     user_message = (
         f"title: {paper.get('title', '')}\n\n"
         f"abstract: {paper.get('abstract', '')[:ABSTRACT_MAX_CHARS]}"
     )
-    response = client.messages.create(
-        model=SUMMARIZER_MODEL,
-        max_tokens=1024,
-        system=SUMMARY_SYSTEM_PROMPT,
-        tools=[SUMMARY_TOOL],
-        tool_choice={"type": "tool", "name": "submit_summary"},
-        messages=[{"role": "user", "content": user_message}],
+    response = client.converse(
+        modelId=SUMMARIZER_MODEL,
+        system=[{"text": SUMMARY_SYSTEM_PROMPT}],
+        messages=[{"role": "user", "content": [{"text": user_message}]}],
+        toolConfig={
+            "tools": [SUMMARY_TOOL],
+            "toolChoice": {"tool": {"name": "submit_summary"}},
+        },
+        inferenceConfig={"maxTokens": 1024},
     )
-    for block in response.content:
-        if block.type == "tool_use":
-            return dict(block.input)
+    content_blocks = response["output"]["message"]["content"]
+    for block in content_blocks:
+        tool_use = block.get("toolUse")
+        if tool_use and tool_use.get("name") == "submit_summary":
+            return dict(tool_use["input"])
     return {"title_ja": paper.get("title", ""), "summary_ja": ["（要約失敗）"]}
 
 
@@ -170,7 +178,7 @@ def build_blocks(papers: list[dict[str, Any]], date: str) -> list[dict[str, Any]
                 {
                     "type": "mrkdwn",
                     "text": (
-                        "🤖 Powered by Claude Haiku 4.5 | "
+                        "🤖 Powered by Amazon Nova Pro | "
                         "<https://huggingface.co/papers|HF Daily Papers> + arXiv"
                     ),
                 }

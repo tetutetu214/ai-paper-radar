@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boto3
-from anthropic import AnthropicBedrock
 
 from core import collector, notifier, scorer
 from core.settings import get_settings
@@ -33,8 +32,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(settings.dynamodb_table_name)
-    # Bedrock 経由（IAM 認証）。aws_region は Lambda の実行リージョン
-    anthropic_client = AnthropicBedrock(aws_region=settings.aws_region)
+    # Bedrock Runtime クライアント（IAM 認証）。Converse API で Nova Pro を呼ぶ
+    bedrock_client = boto3.client(
+        "bedrock-runtime", region_name=settings.aws_region
+    )
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     errors: list[str] = []
 
@@ -54,7 +55,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         unscored = scorer.fetch_unscored_papers(table, today)
         if unscored:
             results = scorer.score_papers(
-                anthropic_client, unscored, settings.interest_prompt
+                bedrock_client, unscored, settings.interest_prompt
             )
             scored = scorer.update_scores(table, results)
         logger.info("Scored %d papers", scored)
@@ -67,7 +68,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     try:
         top_n = notifier.fetch_top_n(table, today, settings.top_n_delivery)
         if top_n:
-            enriched = notifier.summarize_papers(anthropic_client, top_n)
+            enriched = notifier.summarize_papers(bedrock_client, top_n)
             notifier.post_to_slack(settings.slack_webhook_url, enriched)
             notifier.mark_delivered(table, top_n)
             delivered = len(top_n)

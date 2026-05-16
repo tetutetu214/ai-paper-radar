@@ -76,7 +76,6 @@ def test_handler_runs_full_pipeline(aws_env: None, settings_mock: MagicMock) -> 
 
     with (
         patch("lambda_function.get_settings", return_value=settings_mock),
-        patch("lambda_function.AnthropicBedrock"),
         patch(
             "lambda_function.collector.fetch_all", return_value=sample_papers
         ) as mock_fetch_all,
@@ -121,7 +120,6 @@ def test_handler_collects_errors_from_step_failures(
 
     with (
         patch("lambda_function.get_settings", return_value=settings_mock),
-        patch("lambda_function.AnthropicBedrock"),
         patch(
             "lambda_function.collector.fetch_all",
             side_effect=RuntimeError("collect fail"),

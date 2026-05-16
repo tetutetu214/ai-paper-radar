@@ -1,6 +1,6 @@
 # AI Paper Radar — タスク管理
 
-> 最終更新: 2026-05-12
+> 最終更新: 2026-05-16
 
 ---
 
@@ -65,11 +65,26 @@
 - [ ] 1 週間の試験運用、配信品質チェック（2026-05-11 朝 JST 6:00 から自動配信開始）
 - [ ] 本番デプロイ（必要なら別スタック名・別リージョン構成）
 
-## Phase 4: 振り返り・拡張検討
+## Phase 4: Nova Pro 切替（コスト削減、2026-05-16〜）
 
-- [ ] 1週間の配信ログレビュー
+- [x] Claude Haiku 4.5 → Amazon Nova Pro 切替の判断（コスト最優先、2026-05-16）
+- [x] `feature/migrate-bedrock-haiku-to-nova-pro` ブランチ作成
+- [x] `scorer.py` / `notifier.py` を boto3 Converse API + `apac.amazon.nova-pro-v1:0` に書き換え
+- [x] `lambda_function.py` のクライアント生成を `AnthropicBedrock` → `boto3.client("bedrock-runtime")` に切替
+- [x] CDK Stack の IAM 権限を APAC CRIS 3-Statement に書き換え（`ap-*` ワイルドカード経路含む）
+- [x] `pyproject.toml` から `anthropic` 依存削除、`requirements.txt` も更新、`uv.lock` 再生成
+- [x] テスト書き換え（scorer/notifier/lambda_function/cdk_snapshot、37 件全パス）
+- [x] ドキュメント更新（README/CLAUDE.md/plan.md/spec.md/knowledge.md §9）
+- [x] cdk diff でデプロイ前確認（IAM Policy 3-Statement と Lambda Code S3Key の差分のみ、他リソース不変、2026-05-16）
+- [x] cdk deploy で本番反映（38.25 秒で UPDATE_COMPLETE、2026-05-16 23:18 JST）
+- [x] Lambda 手動 invoke で初回動作確認（collected=50/scored=30/delivered=3、20.8 秒、Haiku 時代の 50.9 秒から半減、errors=[]、Slack 配信成功、2026-05-16）
+- [ ] 翌朝 JST 6:00 の自動配信ログを CloudWatch で確認
+- [ ] PR 作成・マージ
+
+## Phase 5: 振り返り・拡張検討
+
+- [ ] 1週間の配信ログレビュー（Nova Pro 切替後の品質）
 - [ ] 興味プロンプトの調整
-- [ ] スコアリング精度の評価、Sonnet 4.6 切替の要否判断
 - [ ] Phase 2機能（SPECTER2、altmetrics）の必要性判断
 - [ ] Phase 3機能（Notion連携、検索UI）の必要性判断
 
@@ -83,6 +98,6 @@
 - 予算上限: $10/月（試算では $2-4/月）
 - 言語: Python 3.12
 - Papers with Code は実質終了 → HF Trending に置換
-- LLMモデル: Claude Haiku 4.5（スコアリング・要約とも）
+- LLMモデル: ~~Claude Haiku 4.5~~ → **Amazon Nova Pro**（`apac.amazon.nova-pro-v1:0`、スコアリング・要約とも、2026-05-16 切替、コスト削減）
 - 配信時刻: JST 6:00（UTC 21:00）
 - 興味プロンプト: 日本語版で確定（plan.md §9）

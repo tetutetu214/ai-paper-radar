@@ -15,7 +15,7 @@
 - Python 3.12 + uv
 - AWS CDK (Python)
 - AWS Lambda / DynamoDB / EventBridge Scheduler / SSM Parameter Store
-- Anthropic Claude API（Haiku 4.5）
+- Amazon Bedrock 経由 Amazon Nova Pro（`apac.amazon.nova-pro-v1:0`、APAC Cross-Region Inference Profile）
 - Hugging Face Daily Papers + arXiv + HF Trending Papers
 
 ## セットアップ

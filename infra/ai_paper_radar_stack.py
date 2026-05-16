@@ -116,23 +116,24 @@ class AiPaperRadarStack(Stack):
             )
         )
 
-        # 権限: Bedrock Claude Haiku 4.5 を Global Cross-Region Inference Profile 経由で呼ぶ
-        # 公式手順（https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html）
-        # の 3-Statement 構造で最小権限を実装する:
-        #   ① ソース: 自リージョンの global. inference profile への InvokeModel 許可
-        #   ② 宛先: 自リージョンの Foundation Model（Bedrock がローカル処理した場合）
-        #   ③ 宛先: グローバルの Foundation Model（他リージョンへルーティングされた場合、ARN のリージョン部は空）
-        # Statement ②③ には bedrock:InferenceProfileArn 一致条件を付け、jp. などの
-        # 別 CRIS profile からこの FM を呼ぶ経路を禁止する（最小権限の核）
-        bedrock_model_id = "anthropic.claude-haiku-4-5-20251001-v1:0"
+        # 権限: Bedrock Amazon Nova Pro を APAC Cross-Region Inference Profile 経由で呼ぶ
+        # 公式手順（https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html）
+        # APAC CRIS は東京・大阪・ソウル・ムンバイ・シンガポール・シドニーへ自動分散する。
+        # 3-Statement 構造で最小権限を実装:
+        #   ① 自リージョンの apac. inference profile への InvokeModel 許可
+        #   ② 自リージョンの Foundation Model（Bedrock がローカル処理した場合）
+        #   ③ APAC ルーティング先リージョンの Foundation Model（他リージョン処理時）
+        # Statement ②③ には bedrock:InferenceProfileArn 一致条件を付け、別 CRIS profile
+        # からこの FM を呼ぶ経路を禁止する（最小権限の核）
+        bedrock_model_id = "amazon.nova-pro-v1:0"
         inference_profile_arn = (
             f"arn:aws:bedrock:{self.region}:{self.account}"
-            f":inference-profile/global.{bedrock_model_id}"
+            f":inference-profile/apac.{bedrock_model_id}"
         )
 
         self.pipeline_fn.add_to_role_policy(
             iam.PolicyStatement(
-                sid="GrantGlobalCrisInferenceProfileRegionAccess",
+                sid="GrantApacCrisInferenceProfileRegionAccess",
                 actions=["bedrock:InvokeModel"],
                 resources=[inference_profile_arn],
                 conditions={
@@ -145,7 +146,7 @@ class AiPaperRadarStack(Stack):
 
         self.pipeline_fn.add_to_role_policy(
             iam.PolicyStatement(
-                sid="GrantGlobalCrisInferenceProfileInRegionModelAccess",
+                sid="GrantApacCrisInferenceProfileInRegionModelAccess",
                 actions=["bedrock:InvokeModel"],
                 resources=[
                     f"arn:aws:bedrock:{self.region}::foundation-model/{bedrock_model_id}"
@@ -159,16 +160,18 @@ class AiPaperRadarStack(Stack):
             )
         )
 
-        # ARN のリージョン部が空（"arn:aws:bedrock:::..."）なのは仕様で、
-        # global cross-Region 時は aws:RequestedRegion が "unspecified" になる
+        # APAC 内の他リージョンへルーティングされた場合の FM ARN。ワイルドカードで
+        # ap-* リージョンを許可しつつ、bedrock:InferenceProfileArn 条件で
+        # この apac. プロファイル経由のみに限定する
         self.pipeline_fn.add_to_role_policy(
             iam.PolicyStatement(
-                sid="GrantGlobalCrisInferenceProfileGlobalModelAccess",
+                sid="GrantApacCrisInferenceProfileCrossRegionModelAccess",
                 actions=["bedrock:InvokeModel"],
-                resources=[f"arn:aws:bedrock:::foundation-model/{bedrock_model_id}"],
+                resources=[
+                    f"arn:aws:bedrock:ap-*::foundation-model/{bedrock_model_id}"
+                ],
                 conditions={
                     "StringEquals": {
-                        "aws:RequestedRegion": "unspecified",
                         "bedrock:InferenceProfileArn": inference_profile_arn,
                     },
                 },

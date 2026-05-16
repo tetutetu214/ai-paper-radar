@@ -20,7 +20,7 @@
   - AWS Systems Manager (SSM) Parameter Store standard（SecureString）
   - Amazon CloudWatch Logs / Billing Alarm
 - **外部API**:
-  - Amazon Bedrock 経由 Claude Haiku 4.5（IAM 認証、`global.anthropic.claude-haiku-4-5-20251001-v1:0` Global Cross-Region Inference Profile）
+  - Amazon Bedrock 経由 Amazon Nova Pro（IAM 認証、`apac.amazon.nova-pro-v1:0` APAC Cross-Region Inference Profile、Converse API 経由）
   - Hugging Face Daily Papers API
   - arXiv API
   - Slack Incoming Webhook
@@ -64,7 +64,7 @@ ai-paper-radar/
 
 本番では SSM Parameter Store から取得（パス `/ai-paper-radar/runtime/*`）。ローカル開発時のみ `~/.secrets/ai-paper-radar.env` から読み込む。
 
-Anthropic Claude は Amazon Bedrock 経由で呼ぶため API キー管理は不要（Lambda 実行ロールの `bedrock:InvokeModel` 権限で認証）。
+Amazon Nova Pro は Amazon Bedrock 経由で呼ぶため API キー管理は不要（Lambda 実行ロールの `bedrock:InvokeModel` 権限で認証）。
 
 ## 開発ルール（プロジェクト固有）
 
@@ -104,5 +104,6 @@ Anthropic Claude は Amazon Bedrock 経由で呼ぶため API キー管理は不
 - HF Daily Papers: https://huggingface.co/papers
 - HF Daily Papers Blog: https://huggingface.co/blog/daily-papers
 - arXiv API: https://info.arxiv.org/help/api/index.html
-- Anthropic Claude API: https://docs.anthropic.com/
+- Amazon Bedrock Converse API: https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference.html
+- Amazon Nova ユーザーガイド: https://docs.aws.amazon.com/nova/latest/userguide/
 - AWS CDK Python: https://docs.aws.amazon.com/cdk/api/v2/python/
