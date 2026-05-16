@@ -7,7 +7,7 @@
 
 ## 1. 概要
 
-`plan.md` で確定したアーキテクチャの実装仕様を定義する。Lambda 1関数構成、Claude Haiku 4.5、DynamoDB 1テーブル、CDK Python による IaC が前提。
+`plan.md` で確定したアーキテクチャの実装仕様を定義する。Lambda 1関数構成、Amazon Nova Pro（Bedrock 経由）、DynamoDB 1テーブル、CDK Python による IaC が前提。
 
 ---
 
@@ -94,7 +94,7 @@
 | `upvotes` | N | △ | HF upvote数（HFソース時のみ） |
 | `score` | N | △ | スコア（0-100） |
 | `score_padded` | S | △ | GSI SK、`{score:03d}` |
-| `score_reason` | S | △ | スコア採用理由（Claude生成） |
+| `score_reason` | S | △ | スコア採用理由（Nova Pro 生成） |
 | `summary_ja` | S | △ | 日本語3行要約（配信対象のみ生成） |
 | `delivered_at` | S | △ | Slack配信日時（ISO8601） |
 | `ttl` | N | ○ | UNIXタイムスタンプ、collected_at + 90日 |
@@ -131,7 +131,7 @@
 | `/ai-paper-radar/runtime/SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | SecureString |
 | `/ai-paper-radar/runtime/INTEREST_PROMPT` | 興味プロンプト（日本語、複数行可）| SecureString |
 
-Anthropic Claude は Bedrock 経由で IAM 認証するため API キーを SSM に保管しない（`bedrock:InvokeModel` 権限で代替）。
+Amazon Nova Pro は Bedrock 経由で IAM 認証するため API キーを SSM に保管しない（`bedrock:InvokeModel` 権限で代替）。
 
 KMS キー: `alias/aws/ssm`（AWS 管理キー、暗号化無料）
 
@@ -165,12 +165,12 @@ def handler(event, context):
     # Step 2: スコアリング（バッチ10本ずつ）
     unscored = scorer.fetch_unscored(table, today)
     for batch in chunks(unscored, 10):
-        scores = scorer.score_with_claude(batch, params["INTEREST_PROMPT"])
+        scores = scorer.score_papers(batch, params["INTEREST_PROMPT"])
         scorer.update_scores(table, scores)
 
     # Step 3: 配信
     top_n = notifier.fetch_top_n(table, today, n=TOP_N_DELIVERY)
-    summaries = notifier.summarize_with_claude(top_n)
+    summaries = notifier.summarize_papers(top_n)
     notifier.post_to_slack(summaries, params["SLACK_WEBHOOK_URL"])
     notifier.mark_delivered(table, top_n)
 
@@ -184,12 +184,12 @@ def handler(event, context):
 | HF API 失敗 | warning ログ、arXiv のみで継続 |
 | arXiv API 失敗 | warning ログ、HF のみで継続 |
 | 全ソース失敗 | DLQ送信、Slack に通知（管理者向け） |
-| Claude API 失敗 | tenacity で 3回リトライ、それでも失敗なら該当論文をskip |
+| Bedrock API 失敗 | tenacity で 3回リトライ、それでも失敗なら該当論文をskip |
 | Slack 投稿失敗 | tenacity 3回リトライ、失敗時は CloudWatch Logs にエラー出力 |
 
 ---
 
-## 5. Claude API プロンプト設計
+## 5. Bedrock プロンプト設計
 
 ### 5.1 スコアリング用プロンプト（バッチ処理）
 
@@ -241,43 +241,53 @@ abstract: ...
 
 ### 5.3 JSON強制方法
 
-Anthropic Messages API の `tool_choice` を使った function calling 形式でstructured outputを強制する。Bedrock 経由でも `AnthropicBedrock` クラスを使えば Direct API と同じシグネチャで呼べる。
+Bedrock Converse API の `toolConfig` を使った function calling 形式で structured output を強制する。boto3 から直接呼び出す。
 
 ```python
-from anthropic import AnthropicBedrock
-client = AnthropicBedrock(aws_region="ap-northeast-1")
-response = client.messages.create(
-    model="global.anthropic.claude-haiku-4-5-20251001-v1:0",
-    max_tokens=2048,
-    system=SYSTEM_PROMPT,
-    tools=[{
-        "name": "submit_scores",
-        "description": "論文スコアの結果を返す",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "results": {
-                    "type": "array",
-                    "items": {
+import boto3
+client = boto3.client("bedrock-runtime", region_name="ap-northeast-1")
+response = client.converse(
+    modelId="apac.amazon.nova-pro-v1:0",
+    system=[{"text": SYSTEM_PROMPT}],
+    messages=[{"role": "user", "content": [{"text": user_message}]}],
+    toolConfig={
+        "tools": [{
+            "toolSpec": {
+                "name": "submit_scores",
+                "description": "論文スコアの結果を返す",
+                "inputSchema": {
+                    "json": {
                         "type": "object",
                         "properties": {
-                            "paper_id": {"type": "string"},
-                            "score": {"type": "integer", "minimum": 0, "maximum": 100},
-                            "reason": {"type": "string"}
+                            "results": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "paper_id": {"type": "string"},
+                                        "score": {"type": "integer", "minimum": 0, "maximum": 100},
+                                        "reason": {"type": "string"}
+                                    },
+                                    "required": ["paper_id", "score", "reason"]
+                                }
+                            }
                         },
-                        "required": ["paper_id", "score", "reason"]
+                        "required": ["results"]
                     }
                 }
-            },
-            "required": ["results"]
-        }
-    }],
-    tool_choice={"type": "tool", "name": "submit_scores"},
-    messages=[{"role": "user", "content": user_message}]
+            }
+        }],
+        "toolChoice": {"tool": {"name": "submit_scores"}}
+    },
+    inferenceConfig={"maxTokens": 2048}
 )
-```
 
-`prompt_caching` を有効化し、システムプロンプトと興味プロンプトをキャッシュする（コスト削減）。
+# レスポンスは output.message.content[].toolUse.input から取り出す
+for block in response["output"]["message"]["content"]:
+    tool_use = block.get("toolUse")
+    if tool_use and tool_use["name"] == "submit_scores":
+        results = tool_use["input"]["results"]
+```
 
 ---
 
@@ -311,7 +321,7 @@ Slack Incoming Webhook に Block Kit 形式で投稿する。
     {
       "type": "context",
       "elements": [
-        {"type": "mrkdwn", "text": "🤖 Powered by Claude Haiku 4.5 | <https://huggingface.co/papers|HF Daily Papers> + arXiv"}
+        {"type": "mrkdwn", "text": "🤖 Powered by Amazon Nova Pro | <https://huggingface.co/papers|HF Daily Papers> + arXiv"}
       ]
     }
   ]
@@ -400,12 +410,12 @@ aws ssm put-parameter --name /ai-paper-radar/runtime/INTEREST_PROMPT \
 
 ### 7.6 Bedrock model access 有効化（デプロイ前 1 回のみ）
 
-Bedrock の Anthropic Claude Haiku 4.5 を初めて使うには、AWS Console での利用申請が必要（IAM 権限を付与しても model access が無効だと InvokeModel が AccessDeniedException で失敗する）。
+Bedrock の Amazon Nova Pro は Amazon 自社モデルのためコンソールでの利用申請は **不要**（IAM 権限のみで即時利用可）。Anthropic Claude 系の経験則と異なる点に注意。
 
-1. AWS Console → Amazon Bedrock → 左サイドバー「Model access」を開く
+1. AWS Console → Amazon Bedrock → 左サイドバー「Model access」を開く（確認のみ）
 2. リージョンを `ap-northeast-1` に切替
-3. 「Modify model access」 → Anthropic の **Claude Haiku 4.5** にチェック → Submit
-4. 数十秒〜数分で `Access granted` になる
+3. **Amazon Nova Pro** が「Access granted」状態であることを確認（Amazon モデルはデフォルトで有効）
+4. もし無効になっていれば「Modify model access」から有効化
 
 ---
 

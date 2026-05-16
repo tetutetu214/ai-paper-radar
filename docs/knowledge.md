@@ -116,8 +116,10 @@ HF公式ブログには「upvoteで論文を **highlight** する」と書かれ
 ### 3.2 なぜ Slack のみで MVP（Notionなしで開始）
 Notionは「論文を貯めて再読する」用途で価値があるが、DynamoDBに全メタデータを蓄積する設計のため、後から Notion連携や検索UI を追加可能。MVPはシンプル優先。
 
-### 3.3 なぜ Haiku でスコアリング、Sonnet で要約か
-スコアリングは50本/日のバッチ処理で安価さが重要 → Haiku 4.5。要約は3本/日で品質が重要 → Sonnet 4.6。コストは月 $3-6 に収まる試算。
+### 3.3 なぜ Haiku でスコアリング、Sonnet で要約か（**廃止: §9 参照**）
+~~スコアリングは50本/日のバッチ処理で安価さが重要 → Haiku 4.5。要約は3本/日で品質が重要 → Sonnet 4.6。コストは月 $3-6 に収まる試算。~~
+
+→ 2026-05-16 に Amazon Nova Pro へ全面切替（§9 参照）。スコアリング・要約ともに同一モデル（Nova Pro）を使用する単純構成に変更。判断軸はコスト最優先。
 
 ### 3.4 リージョン選択
 ap-northeast-1（東京）。既存の他プロジェクト（chicken-knowledge-rag 等）と統一して運用負荷を下げる。Anthropic API と Slack Webhook はAWS外部サービスのためリージョン依存しない。Bedrock等の先行リリースは東京リージョンでも数ヶ月遅れで利用可能になるので個人用途では問題ない。
@@ -271,6 +273,54 @@ PR #5 のデプロイ後、修正効果を確認するため `aws lambda invoke`
 - `tests/test_cdk_snapshot.py::test_lambda_function_created` で `ReservedConcurrentExecutions=1` を検証
 
 ---
+
+---
+
+## 9. Amazon Nova Pro へ全面切替（2026-05-16、コスト削減）
+
+Claude Haiku 4.5 から Amazon Nova Pro へモデル切替。スコアリング・要約とも `apac.amazon.nova-pro-v1:0`。
+
+**判断根拠（コスト最優先）**:
+- Claude Haiku 4.5: input $1.00/1M, output $5.00/1M
+- Amazon Nova Pro: input $0.80/1M, output $3.20/1M（Haiku の約 1/1.5）
+- てつてつ判断: 「コスト理由なので、いかなる品質議論も関係ない」
+- chicken-knowledge-rag・trip-road が既に Nova Pro 採用済みで、運用知見を流用できる
+
+**実装上の影響（重要）**:
+- Anthropic SDK（`AnthropicBedrock`）は **Nova モデルを呼べない**。Nova は Anthropic 製ではないため
+- 全面的に **boto3 の `bedrock-runtime.converse()` API** に書き換え
+- Tool use の構造が違う:
+  - Anthropic: `tools=[{name, description, input_schema}]`, `tool_choice={type, name}`
+  - Converse: `toolConfig={tools: [{toolSpec: {name, description, inputSchema: {json: ...}}}], toolChoice: {tool: {name}}}`
+- レスポンスパースも違う:
+  - Anthropic: `response.content[i].type == "tool_use"` → `.input`
+  - Converse: `response["output"]["message"]["content"][i]["toolUse"]["input"]`
+- メッセージ構造も違う:
+  - Anthropic: `messages=[{role, content: str}]`, `system="..."`（文字列）
+  - Converse: `messages=[{role, content: [{text: "..."}]}]`, `system=[{text: "..."}]`（リスト）
+- max_tokens は `inferenceConfig.maxTokens` に移動
+
+**Inference Profile 選定**:
+- `apac.amazon.nova-pro-v1:0` を採用（東京・大阪・ソウル・ムンバイ・シンガポール・シドニーへ分散）
+- Anthropic 時代の `global.` 接頭辞は Nova では使えない。Nova は地域別 CRIS（`apac.` / `us.` / `eu.`）が標準
+
+**IAM 権限（APAC CRIS の最小権限 3-Statement）**:
+- ① `arn:aws:bedrock:ap-northeast-1:{account}:inference-profile/apac.amazon.nova-pro-v1:0` への InvokeModel（`aws:RequestedRegion=ap-northeast-1`）
+- ② 自リージョンの FM ARN `arn:aws:bedrock:ap-northeast-1::foundation-model/amazon.nova-pro-v1:0` への InvokeModel（同条件 + `bedrock:InferenceProfileArn` 一致）
+- ③ APAC 他リージョン FM ARN `arn:aws:bedrock:ap-*::foundation-model/amazon.nova-pro-v1:0` への InvokeModel（`bedrock:InferenceProfileArn` 一致のみ。クロスリージョン分散経路）
+
+**Bedrock model access**:
+- Amazon Nova Pro は **Amazon 自社モデル** のため AWS Console での利用申請は **不要**（Anthropic Claude と異なる）
+- IAM 権限を付与するだけで即時利用可能
+
+**廃止された依存**:
+- `anthropic` SDK は pyproject.toml と Lambda layer の requirements.txt から削除
+- これに伴い `uv.lock` も再生成
+
+**Slack フッター文言**:
+- 「Powered by Claude Haiku 4.5」→「Powered by Amazon Nova Pro」
+
+参考: https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference.html
 
 ---
 
